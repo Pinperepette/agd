@@ -75,6 +75,11 @@ agd bench             file.agd                 # token count vs MD/HTML/JSON
 agd id   --add        file.agd                 # auto-assign IDs
 agd ref  --check      file.agd                 # verify @ref targets
 
+agd ids    file.agd                            # list addressable block ids (TOC)
+agd ids    file.agd --kind x-feedback          # filter TOC by block kind
+agd search file.agd "redis" -i                 # grep on block bodies, returns matching ids
+agd get    file.agd '#a' '#b' '#c'             # fetch one or many blocks (single parse)
+
 agd edit file.agd --op '{
   "op":    "set_attr",
   "id":    "intro",
@@ -126,29 +131,28 @@ doc.apply(Operation::SetAttr {
 println!("{}", serialize(&doc));
 ```
 
-For documents over ~1,000 blocks, build a `DocumentIndex` once and
-amortise lookups across many edits. **At 10,000 blocks this is ~580×
-faster than `Document::find`. At 100,000 blocks it's ~2,600× faster.**
+Since v0.1.1, `Document::apply` and `Document::find` use an internal
+HashMap cache automatically — no need to build a separate
+`DocumentIndex` for the common case. Lookups are O(1) amortised; the
+cache is invalidated by structural ops (insert / delete / replace
+where id changes) and stays valid otherwise.
+
+Measured impact at 10k blocks: edit op latency dropped from ~26 µs to
+~4 µs per op (6.3× speedup) when integrated into the public API.
+
+For read-only workflows where you want explicit control over the
+index lifetime, the `DocumentIndex` companion type is still public:
 
 ```rust
-use agd::{parse, edit::Operation, index::DocumentIndex};
+use agd::{parse, index::DocumentIndex};
 
-let mut doc = parse(&large_source)?;
-let idx = DocumentIndex::build(&doc);     // once, O(n)
-
-for op in many_ops {
-    let id = op.target_id();
-    if let Some(_pos) = idx.position(id) {
-        doc.apply(op)?;                    // O(n) inside apply, fixable
-    }
-}
+let doc = parse(&large_source)?;
+let idx = DocumentIndex::build(&doc);   // O(n) once, then O(1) lookups
+let pos = idx.position("auth-flow");
 ```
 
-(The internal `Document::apply` still walks linearly to find the block
-by ID — we keep the index as an external companion so the public
-`Document` type stays simple. A future version may fuse them.)
-
-See [`src/edit.rs`](src/edit.rs) for the full operation algebra.
+See [`src/edit.rs`](src/edit.rs) for the full operation algebra and
+[`src/index.rs`](src/index.rs) for the standalone index.
 
 ## Performance
 
