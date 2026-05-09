@@ -33,26 +33,31 @@ impl Document {
                     self.assert_unique_id(with.id.as_deref(), Some(pos))?;
                 }
                 self.blocks[pos] = with;
+                self.invalidate_index();  // id may have changed
                 Ok(())
             }
             Operation::InsertAfter { id, block } => {
                 let pos = self.position(&id).ok_or(AgdError::IdNotFound { id })?;
                 self.assert_unique_id(block.id.as_deref(), None)?;
                 self.blocks.insert(pos + 1, block);
+                self.invalidate_index();
                 Ok(())
             }
             Operation::InsertBefore { id, block } => {
                 let pos = self.position(&id).ok_or(AgdError::IdNotFound { id })?;
                 self.assert_unique_id(block.id.as_deref(), None)?;
                 self.blocks.insert(pos, block);
+                self.invalidate_index();
                 Ok(())
             }
             Operation::Delete { id } => {
                 let pos = self.position(&id).ok_or(AgdError::IdNotFound { id })?;
                 self.blocks.remove(pos);
+                self.invalidate_index();
                 Ok(())
             }
             Operation::SetAttr { id, key, value } => {
+                // SetAttr / RemoveAttr don't change ids → cache stays valid.
                 let block = self.find_mut(&id).ok_or(AgdError::IdNotFound { id })?;
                 block.attrs.insert(key, value);
                 Ok(())

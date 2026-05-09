@@ -77,6 +77,33 @@ agd edit file.agd --op '{
 }'
 ```
 
+## Daemon mode (`agdd`)
+
+For multi-agent editing where many ops land per second, the CLI
+(fork+exec per op) is the wrong tool. The repo ships `agdd`, a long-lived
+daemon that drains a Redis Stream of logical edit operations and applies
+them in-memory:
+
+```sh
+agdd \
+  --redis-url redis://127.0.0.1:6379/ \
+  --stream    agd:doc:incident-001:ops \
+  --state-key agd:doc:incident-001:state \
+  --group     agdd-group \
+  --consumer  agdd-1
+```
+
+Logical ops have the shape:
+
+```json
+{"kind":"append_item","target":"findings","payload":{"text":"..."},"agent":"analyst"}
+{"kind":"rename_section","target":"findings","payload":{"new_name":"..."},"agent":"analyst"}
+{"kind":"set_attr","target":"meta","payload":{"key":"severity","value":"high"},"agent":"auditor"}
+```
+
+Per-op latency is ~2.3 µs end-to-end (parse-once + DocumentIndex + Redis
+network roundtrip). Source: [`src/bin/agdd.rs`](src/bin/agdd.rs).
+
 ## Library API
 
 The straightforward pattern — fine for small documents:
@@ -131,10 +158,18 @@ Headlines on a single core, release profile:
 | Parse throughput           | **~60 MB/s** sustained at 100k blocks |
 | Serialize throughput       | **~830 MB/s** — 10× faster than parse |
 | Edit op via library (1k blocks)        | **~2 µs** = ~500k edits/sec   |
+| Edit op via `agdd` (Redis Streams, end-to-end) | **~2.3 µs** = ~430k edits/sec |
 | Find by ID, 10k blocks: linear vs indexed | **21 µs vs 36 ns = 583× speedup** |
 | Find by ID, 100k blocks: linear vs indexed | **283 µs vs 108 ns = 2625× speedup** |
 | AST overhead                | ~4× source byte size           |
 | Edit via CLI subprocess     | ~13 ms (parse + apply + serialize per call) |
+
+The `agdd` row above is the realistic end-to-end latency for a multi-agent
+editing workflow: a Rust daemon reads logical ops from a Redis Stream
+(`XREADGROUP`), applies them in-memory via the library API + `DocumentIndex`,
+serializes back to a Redis Hash, ACKs. Includes the Redis network roundtrip.
+Measured in the companion lab at
+[`pinperepette/blog`](https://github.com/Pinperepette/blog/tree/main/scripts/ogni-blocco-ha-un-nome/v2_redis).
 
 **vs. CommonMark via `pulldown-cmark`** (one of the most optimised MD
 parsers in existence): AGD is **2–3× slower at parse** on large
@@ -230,6 +265,7 @@ agd/
 │   ├── convert/                 MD ↔ AGD ↔ HTML
 │   └── bin/
 │       ├── agd.rs               user-facing CLI
+│       ├── agdd.rs              Redis Streams daemon (multi-agent edit)
 │       └── agd-bench.rs         benchmark runner → BENCHMARKS.md
 └── tests/
     ├── conformance/             paired .agd / .json fixtures

@@ -12,10 +12,10 @@ Parse a freshly-loaded AGD source into a `Document`. Cold start excluded; report
 
 | blocks | bytes | parse (ms) | throughput (MB/s) | tokens (cl100k) |
 |---:|---:|---:|---:|---:|
-| 100 | 11.4 KB | 0.14 | 81 | 2536 |
-| 1000 | 114.6 KB | 1.50 | 74 | 24624 |
-| 10000 | 1.2 MB | 17.94 | 66 | 256736 |
-| 100000 | 11.9 MB | 202.39 | 59 | 2587485 |
+| 100 | 11.4 KB | 0.15 | 76 | 2536 |
+| 1000 | 114.6 KB | 1.49 | 75 | 24624 |
+| 10000 | 1.2 MB | 17.40 | 68 | 256736 |
+| 100000 | 11.9 MB | 197.28 | 60 | 2587485 |
 
 ## 2. Serialize throughput
 
@@ -23,10 +23,10 @@ Serialize a parsed `Document` back to canonical AGD bytes.
 
 | blocks | parse+serialize (ms) | serialize alone (ms) | throughput (MB/s) |
 |---:|---:|---:|---:|
-| 100 | 0.19 | 0.01 | 838 |
-| 1000 | 1.80 | 0.13 | 849 |
-| 10000 | 20.23 | 1.42 | 829 |
-| 100000 | 225.83 | 18.43 | 644 |
+| 100 | 0.15 | 0.01 | 987 |
+| 1000 | 1.65 | 0.12 | 941 |
+| 10000 | 18.90 | 1.67 | 706 |
+| 100000 | 220.64 | 18.81 | 631 |
 
 ## 3. Edit throughput
 
@@ -34,10 +34,10 @@ Apply 1000 `set_attr` operations to random IDs on an in-memory document. This is
 
 | blocks | addressable IDs | total (ms) | per-edit (µs) | edits/sec |
 |---:|---:|---:|---:|---:|
-| 100 | 35 | 0.21 | 0.21 | 4832832 |
-| 1000 | 307 | 1.94 | 1.94 | 516650 |
-| 10000 | 2758 | 26.08 | 26.08 | 38338 |
-| 100000 | 28177 | 340.54 | 340.54 | 2937 |
+| 100 | 35 | 0.17 | 0.17 | 5854938 |
+| 1000 | 307 | 0.54 | 0.54 | 1855556 |
+| 10000 | 2758 | 4.15 | 4.15 | 240884 |
+| 100000 | 28177 | 54.94 | 54.94 | 18201 |
 
 ## 4. Random access by ID
 
@@ -45,10 +45,10 @@ Apply 1000 `set_attr` operations to random IDs on an in-memory document. This is
 
 | blocks | linear find (µs) | indexed find (ns) | speedup |
 |---:|---:|---:|---:|
-| 100 | 0.08 | 25 | 3× |
-| 1000 | 1.60 | 26 | 62× |
-| 10000 | 21.17 | 36 | 583× |
-| 100000 | 282.85 | 108 | 2625× |
+| 100 | 0.03 | 26 | 1× |
+| 1000 | 0.03 | 25 | 1× |
+| 10000 | 0.08 | 34 | 2× |
+| 100000 | 0.65 | 89 | 7× |
 
 ## 5. AGD vs Markdown — parse speed at parity
 
@@ -56,10 +56,10 @@ Generate equivalent content as AGD and as CommonMark, time both parsers. AGD par
 
 | blocks | AGD parse (ms) | MD parse (ms) | AGD throughput | MD throughput | ratio |
 |---:|---:|---:|---:|---:|---:|
-| 100 | 0.15 | 0.60 | 75 MB/s | 19 MB/s | 0.25× |
-| 1000 | 1.71 | 1.02 | 66 MB/s | 106 MB/s | 1.67× |
-| 10000 | 18.94 | 6.52 | 62 MB/s | 173 MB/s | 2.90× |
-| 100000 | 198.49 | 74.07 | 60 MB/s | 153 MB/s | 2.68× |
+| 100 | 0.17 | 0.06 | 65 MB/s | 182 MB/s | 2.77× |
+| 1000 | 1.59 | 0.93 | 70 MB/s | 117 MB/s | 1.71× |
+| 10000 | 17.89 | 5.82 | 66 MB/s | 194 MB/s | 3.07× |
+| 100000 | 196.78 | 89.29 | 60 MB/s | 127 MB/s | 2.20× |
 
 ## 6. Conversion throughput
 
@@ -68,9 +68,9 @@ AGD → Markdown and AGD → HTML rendering on a parsed document.
 | blocks | to_md (ms) | to_html (ms) |
 |---:|---:|---:|
 | 100 | 0.01 | 0.07 |
-| 1000 | 0.16 | 0.76 |
-| 10000 | 1.73 | 7.34 |
-| 100000 | 22.95 | 79.64 |
+| 1000 | 0.13 | 0.75 |
+| 10000 | 1.61 | 7.56 |
+| 100000 | 21.27 | 79.14 |
 
 ## 7. Token economy at scale
 
@@ -89,7 +89,7 @@ In-memory `Document` size (bytes) compared to source AGD bytes. Includes spans, 
 
 | blocks | source bytes | AST bytes | overhead |
 |---:|---:|---:|---:|
-| 100 | 11.4 KB | 46.2 KB | 4.04× |
+| 100 | 11.4 KB | 46.3 KB | 4.05× |
 | 1000 | 114.6 KB | 451.3 KB | 3.94× |
 | 10000 | 1.2 MB | 5.3 MB | 4.49× |
 | 100000 | 11.9 MB | 49.8 MB | 4.19× |

@@ -30,7 +30,7 @@ pub fn parse(src: &str) -> Result<Document> {
             LineKind::Fence => return Err(p.err(line, "stray fence `~~~` outside @code/@raw/@table block")),
         }
     }
-    Ok(Document { blocks: p.blocks })
+    Ok(Document::with_blocks(p.blocks))
 }
 
 struct Parser<'a> {

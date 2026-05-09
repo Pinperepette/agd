@@ -2,13 +2,39 @@
 //! representation produced by the parser and consumed by the serializer.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
 
 /// A parsed AGD document.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+///
+/// The internal `index_cache` provides amortised O(1) lookup by block id
+/// via [`Document::position`] / [`Document::find`] / [`Document::find_mut`].
+/// The cache is built lazily on first access, invalidated automatically
+/// by structural operations in [`crate::edit`] (Insert / Delete / Replace
+/// where the id changes), and excluded from structural equality and
+/// serialisation.
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Document {
     pub blocks: Vec<Block>,
+    #[serde(skip)]
+    index_cache: RefCell<Option<HashMap<String, usize>>>,
 }
+
+impl Clone for Document {
+    fn clone(&self) -> Self {
+        Self {
+            blocks: self.blocks.clone(),
+            index_cache: RefCell::new(None),
+        }
+    }
+}
+
+impl PartialEq for Document {
+    fn eq(&self, other: &Self) -> bool {
+        self.blocks == other.blocks
+    }
+}
+impl Eq for Document {}
 
 /// A single top-level block. `span` is incidental source-location
 /// metadata and is **not** part of structural equality — two blocks
@@ -222,17 +248,54 @@ impl From<bool> for AttrValue {
 impl Document {
     pub fn new() -> Self { Self::default() }
 
-    /// Find the first block with the given ID.
-    pub fn find(&self, id: &str) -> Option<&Block> {
-        self.blocks.iter().find(|b| b.id.as_deref() == Some(id))
+    /// Construct from a pre-built block vec. Lookup cache starts empty
+    /// and is populated lazily on first `position()` call.
+    pub fn with_blocks(blocks: Vec<Block>) -> Self {
+        Self { blocks, index_cache: RefCell::new(None) }
     }
 
-    pub fn find_mut(&mut self, id: &str) -> Option<&mut Block> {
-        self.blocks.iter_mut().find(|b| b.id.as_deref() == Some(id))
-    }
-
+    /// Position of the first block with the given id. Amortised O(1)
+    /// via an internal HashMap cache that is rebuilt lazily after
+    /// structural changes.
     pub fn position(&self, id: &str) -> Option<usize> {
-        self.blocks.iter().position(|b| b.id.as_deref() == Some(id))
+        let mut cell = self.index_cache.borrow_mut();
+        if cell.is_none() {
+            let mut map = HashMap::with_capacity(self.blocks.len());
+            for (i, b) in self.blocks.iter().enumerate() {
+                if let Some(bid) = &b.id {
+                    // Keep the first occurrence — duplicates were already
+                    // rejected at parse time, so this is a defensive choice
+                    // for hand-built documents.
+                    map.entry(bid.clone()).or_insert(i);
+                }
+            }
+            *cell = Some(map);
+        }
+        cell.as_ref().unwrap().get(id).copied()
+    }
+
+    /// Find the first block with the given ID. O(1) amortised.
+    pub fn find(&self, id: &str) -> Option<&Block> {
+        self.position(id).map(|i| &self.blocks[i])
+    }
+
+    /// Mutable lookup by id. The returned reference targets a block
+    /// whose `id` is the one requested. **If the caller mutates the
+    /// block's `id` field, they MUST call [`invalidate_index`] before
+    /// the next lookup**, otherwise the cache will return a stale
+    /// position. The standard [`crate::edit::Operation`] applier does
+    /// this correctly; only matters for hand-rolled mutators.
+    pub fn find_mut(&mut self, id: &str) -> Option<&mut Block> {
+        let pos = self.position(id)?;
+        self.blocks.get_mut(pos)
+    }
+
+    /// Clear the internal id-lookup cache. Required after any direct
+    /// mutation of `self.blocks` that changes the order, count, or
+    /// id-bearing fields. The high-level apply() method handles this
+    /// automatically.
+    pub fn invalidate_index(&mut self) {
+        *self.index_cache.get_mut() = None;
     }
 
     /// Collect all IDs in document order.
@@ -245,6 +308,7 @@ impl Document {
         for b in &mut self.blocks {
             b.span = Span::default();
         }
+        // span changes don't affect lookup, no invalidation needed
     }
 
     /// Merge adjacent `Inline::Text` nodes within every block. The parser

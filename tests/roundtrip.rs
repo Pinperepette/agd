@@ -148,7 +148,7 @@ fn document_strategy() -> impl Strategy<Value = Document> {
                 }
             }
         }
-        let mut doc = Document { blocks };
+        let mut doc = Document::with_blocks(blocks);
         doc.normalize();
         doc
     })

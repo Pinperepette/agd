@@ -162,7 +162,7 @@ pub fn parse_markdown(src: &str) -> Document {
         }
     }
 
-    Document { blocks }
+    Document::with_blocks(blocks)
 }
 
 fn code_buf_active(_buf: &str) -> bool {
