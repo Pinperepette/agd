@@ -1,0 +1,74 @@
+{
+  "blocks": [
+    {
+      "kind": "h1",
+      "id": "root",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "Mixed structure"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ol",
+      "id": "steps",
+      "content": {
+        "type": "items",
+        "value": [
+          [
+            {
+              "kind": "text",
+              "text": "clone the repo"
+            }
+          ],
+          [
+            {
+              "kind": "text",
+              "text": "run cargo build"
+            }
+          ],
+          [
+            {
+              "kind": "text",
+              "text": "run cargo test"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "kind": "quote",
+      "attrs": {
+        "source": "claude-1"
+      },
+      "id": "status",
+      "content": {
+        "type": "items",
+        "value": [
+          [
+            {
+              "kind": "text",
+              "text": "task done"
+            }
+          ],
+          [
+            {
+              "kind": "text",
+              "text": "see PR 482"
+            }
+          ],
+          [
+            {
+              "kind": "text",
+              "text": "follow-up tracked separately"
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

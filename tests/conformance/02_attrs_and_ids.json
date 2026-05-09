@@ -1,0 +1,75 @@
+{
+  "blocks": [
+    {
+      "kind": "meta",
+      "attrs": {
+        "author": "alice",
+        "count": 42,
+        "enabled": true
+      },
+      "content": {
+        "type": "empty"
+      }
+    },
+    {
+      "kind": "h1",
+      "id": "root",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "Attribute coverage"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "p",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "Plain paragraph."
+          }
+        ]
+      }
+    },
+    {
+      "kind": "code",
+      "attrs": {
+        "lang": "python",
+        "tabs": false
+      },
+      "id": "py",
+      "content": {
+        "type": "fenced",
+        "value": "def square(n):\n    return n * n"
+      }
+    },
+    {
+      "kind": "x-diagram",
+      "attrs": {
+        "direction": "left-to-right",
+        "type": "flow"
+      },
+      "id": "diag",
+      "content": {
+        "type": "empty"
+      }
+    },
+    {
+      "kind": "ref",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "ref",
+            "text": "py"
+          }
+        ]
+      }
+    }
+  ]
+}

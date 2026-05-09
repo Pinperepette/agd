@@ -1,0 +1,37 @@
+{
+  "blocks": [
+    {
+      "kind": "code",
+      "attrs": {
+        "lang": "rust"
+      },
+      "id": "rs",
+      "content": {
+        "type": "fenced",
+        "value": "fn main() {\n    println!(\"hello\");\n}"
+      }
+    },
+    {
+      "kind": "code",
+      "attrs": {
+        "lang": "json"
+      },
+      "id": "json",
+      "content": {
+        "type": "fenced",
+        "value": "{\n  \"users\": [{\"id\": 1, \"name\": \"alice\"}],\n  \"next\": null\n}"
+      }
+    },
+    {
+      "kind": "raw",
+      "attrs": {
+        "type": "svg"
+      },
+      "id": "logo",
+      "content": {
+        "type": "fenced",
+        "value": "<svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\"/></svg>"
+      }
+    }
+  ]
+}

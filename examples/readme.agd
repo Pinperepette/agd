@@ -1,0 +1,46 @@
+@meta title="My CLI Tool" license=MIT lang=rust
+
+@h1 widget [#widget]
+@p `widget` is a small CLI for transforming widget configurations. It reads
+@p JSON from stdin, applies a transformation, and writes the result to stdout.
+
+@h2 Install [#install]
+@code lang=shell
+~~~
+cargo install widget
+~~~
+
+@h2 Quick start [#quickstart]
+@p Pipe a config through and inspect the output.
+
+@code lang=shell
+~~~
+echo '{"size": 4}' | widget --multiply 3
+# => {"size": 12}
+~~~
+
+@h2 Commands [#commands]
+@ul
+- `widget --multiply N` — multiply every numeric leaf by N
+- `widget --filter KEY` — keep only the named keys
+- `widget --schema` — print the JSON schema and exit
+- `widget --version` — print the version
+
+@h2 Configuration [#config]
+@p Configuration is read from `~/.widgetrc.toml` if present.
+
+@code lang=toml
+~~~
+default_multiplier = 1
+strict = true
+allow_unknown_keys = false
+~~~
+
+@h2 Contributing [#contributing]
+@ol
+- fork and clone the repo
+- run `cargo test` before pushing
+- open a PR against `main`; CI must be green
+
+@h2 License [#license]
+@p MIT — see the LICENSE file in the repository root.

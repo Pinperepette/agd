@@ -1,0 +1,6 @@
+@h1 Inline formatting [#inline]
+@p A paragraph with *bold*, _italic_, and `code` — non-nestable.
+
+@ref #inline
+
+@p Mismatched *delim still parses as text.

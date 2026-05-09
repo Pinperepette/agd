@@ -1,0 +1,14 @@
+@meta author="alice" enabled=true count=42
+
+@h1 Attribute coverage [#root]
+@p Plain paragraph.
+
+@code lang=python tabs=false [#py]
+~~~
+def square(n):
+    return n * n
+~~~
+
+@x-diagram type=flow direction="left-to-right" [#diag]
+
+@ref #py

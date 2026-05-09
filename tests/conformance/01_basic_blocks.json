@@ -1,0 +1,126 @@
+{
+  "blocks": [
+    {
+      "kind": "meta",
+      "attrs": {
+        "title": "Basic blocks",
+        "v": 1
+      },
+      "content": {
+        "type": "empty"
+      }
+    },
+    {
+      "kind": "h1",
+      "id": "intro",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "Hello"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "p",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "Welcome to AGD."
+          }
+        ]
+      }
+    },
+    {
+      "kind": "h2",
+      "id": "lists",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "Lists"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ul",
+      "id": "features",
+      "content": {
+        "type": "items",
+        "value": [
+          [
+            {
+              "kind": "text",
+              "text": "token-efficient"
+            }
+          ],
+          [
+            {
+              "kind": "text",
+              "text": "deterministic"
+            }
+          ],
+          [
+            {
+              "kind": "text",
+              "text": "block-addressable"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "kind": "h2",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "Quotes"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "quote",
+      "attrs": {
+        "source": "spec"
+      },
+      "content": {
+        "type": "items",
+        "value": [
+          [
+            {
+              "kind": "text",
+              "text": "AGD is for agents."
+            }
+          ],
+          [
+            {
+              "kind": "text",
+              "text": "Markdown is for humans."
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "kind": "!",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "end of fixture"
+          }
+        ]
+      }
+    }
+  ]
+}

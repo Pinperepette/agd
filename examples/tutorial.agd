@@ -1,0 +1,72 @@
+@meta title="AGD in five minutes" audience=developers difficulty=beginner
+
+@h1 AGD in five minutes [#root]
+@p AGD is a line-oriented document format. Every block starts at column 0 with
+@p `@<tag>`. That is the whole syntactic story.
+
+@h2 Blocks [#blocks]
+@p Blocks are independent units. Use `@h1`-`@h4` for headings and `@p` for
+@p paragraphs.
+
+@code lang=agd
+~~~
+@h1 Hello world
+@p This is a paragraph.
+~~~
+
+@h2 Stable IDs [#stable-ids]
+@p Add `[#name]` at the end of any block to make it addressable.
+
+@code lang=agd
+~~~
+@h1 Welcome [#intro]
+@p Body of the intro [#intro-body]
+~~~
+
+@h2 Lists and quotes [#lists]
+@p Lists use `@ul` or `@ol`. Each item is a `- ` line. Lists end at the next
+@p empty line or the next `@<tag>`.
+
+@code lang=agd
+~~~
+@ul
+- one
+- two
+- three
+~~~
+
+@h2 Code blocks [#code]
+@p Use `@code` plus a triple-tilde fence for verbatim content. The `lang=`
+@p attribute tags the language for downstream tooling.
+
+@code lang=agd
+~~~
+@code lang=python
+~~~~
+def hello():
+    return "world"
+~~~~
+~~~
+
+@h2 References [#refs]
+@p Use `@ref #id` to point to another block. The CLI verifies refs.
+
+@code lang=shell
+~~~
+agd ref --check my-doc.agd
+~~~
+
+@h2 Editing safely [#editing]
+@p Agents edit through stable IDs, not text positions. The `agd edit` command
+@p applies a JSON operation to a single block.
+
+@code lang=shell
+~~~
+agd edit doc.agd --op '{"op":"replace","id":"intro","with":{"kind":"p","content":{"type":"inline","value":[{"kind":"text","text":"new body"}]}}}'
+~~~
+
+@h2 Where to next [#next]
+@ul
+- read the spec — `spec/AGD-SPEC.agd`
+- run the token benchmark — `agd bench examples/api-doc.agd`
+- try converting from Markdown — `agd convert from-md README.md`

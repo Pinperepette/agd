@@ -1,0 +1,111 @@
+(* ===================================================================== *)
+(*  AGD — Agent Document Format — Grammar v0.1 (FROZEN)                  *)
+(*                                                                       *)
+(*  Line-oriented, LL(1), no backtracking. The lexer classifies each     *)
+(*  line independently; the parser is a 3-state machine consuming the    *)
+(*  classified line stream.                                              *)
+(* ===================================================================== *)
+
+document    = { block } ;
+
+block       = meta
+            | heading
+            | paragraph
+            | list
+            | code-block
+            | raw-block
+            | quote-block
+            | reference
+            | include
+            | comment
+            | table-block
+            | custom-block ;
+
+(* --- Block-start lines (no body) -------------------------------------- *)
+
+meta        = "@meta" attrs NL ;
+heading     = ("@h1" | "@h2" | "@h3" | "@h4") SP inline [ id ] NL ;
+paragraph   = "@p" SP inline NL ;
+reference   = "@ref" SP "#" ident NL ;
+include     = "@include" SP attrs NL ;
+comment     = "@!" any-text NL ;
+
+(* --- Multi-line blocks (terminated by blank line or new @block) ------- *)
+
+list        = ("@ul" | "@ol") attrs [ id ] NL list-items ;
+list-items  = list-item { list-item } ;
+list-item   = "- " inline NL ;
+
+quote-block = "@quote" attrs [ id ] NL quote-lines ;
+quote-lines = quote-line { quote-line } ;
+quote-line  = "> " inline NL ;
+
+(* --- Fenced blocks ---------------------------------------------------- *)
+
+code-block  = "@code" attrs [ id ] NL fence ;
+raw-block   = "@raw"  attrs [ id ] NL fence ;
+table-block = "@table" attrs [ id ] NL fence ;
+fence       = "~~~" NL { any-line } "~~~" NL ;
+
+(* --- Custom (extension) blocks ---------------------------------------- *)
+
+custom-block = "@" custom-tag attrs [ id ] NL [ fence | inline-body ] ;
+custom-tag   = "x-" ident ;
+inline-body  = (* parsed as @p paragraph until blank line *) ;
+
+(* --- Attributes & identifiers ---------------------------------------- *)
+
+attrs       = { SP attr } ;
+attr        = ident "=" attr-value ;
+attr-value  = quoted | unquoted-int | unquoted-bool | unquoted-ident ;
+quoted      = '"' { any-char-no-quote } '"' ;
+unquoted-int  = ["-"] digit { digit } ;
+unquoted-bool = "true" | "false" ;
+unquoted-ident = ident ;
+
+id          = SP "[#" ident [ ":" hex-prefix ] "]" ;
+hex-prefix  = hex-digit { hex-digit } ;          (* sha1[0..8] in canonical *)
+
+ident       = letter { letter | digit | "_" | "-" } ;
+letter      = "a"..."z" | "A"..."Z" | "_" ;
+digit       = "0"..."9" ;
+hex-digit   = digit | "a"..."f" | "A"..."F" ;
+
+(* --- Inline content --------------------------------------------------- *)
+
+inline      = { inline-run } ;
+inline-run  = plain-text
+            | "*" run-text "*"                    (* bold *)
+            | "_" run-text "_"                    (* italic *)
+            | "`" run-text "`"                    (* inline code *)
+            | "@ref" SP "#" ident ;               (* inline reference *)
+plain-text  = { any-char-no-special } ;
+run-text    = { any-char-no-delim } ;             (* non-nestable *)
+
+(* --- Lexical primitives ---------------------------------------------- *)
+
+NL          = "\n" ;
+SP          = " " ;
+any-text    = { any-char-no-newline } ;
+any-line    = any-text NL ;
+any-char-no-newline = ? any UTF-8 except U+000A ? ;
+any-char-no-quote   = ? any UTF-8 except '"' or U+000A ? ;
+any-char-no-special = ? any UTF-8 except '*' '_' '`' '@' U+000A ? ;
+any-char-no-delim   = ? any UTF-8 except current run delimiter or U+000A ? ;
+
+(* ===================================================================== *)
+(*  Parsing notes                                                        *)
+(* ===================================================================== *)
+(*                                                                       *)
+(*  - Empty line ends the current multi-line block scope (list/quote).   *)
+(*  - Fences are recognised only when the parser is awaiting fence open  *)
+(*    (immediately after @code / @raw / @table block-start line).        *)
+(*  - The parser performs ID-uniqueness validation across the document   *)
+(*    after parsing; duplicates raise AgdError::DuplicateId.             *)
+(*  - Unknown @tag (not built-in, not x-prefixed) raises                 *)
+(*    AgdError::InvalidTag at the line of occurrence.                    *)
+(*  - Inline emphasis is non-nestable. The first matching closing        *)
+(*    delimiter terminates the run; mismatched delimiters degrade to     *)
+(*    plain text.                                                        *)
+(*  - Backslash escapes are NOT supported in v0.1.                       *)
+(*                                                                       *)

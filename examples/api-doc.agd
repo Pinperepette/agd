@@ -1,0 +1,69 @@
+@meta title="Users API" version=2 owner="platform-team"
+
+@h1 Users API [#root]
+@p Versioned REST endpoints for user identity, profile, and access tokens. All
+@p responses are JSON and use UTC ISO-8601 timestamps.
+
+@h2 Authentication [#auth]
+@p All requests require a bearer token in the `Authorization` header.
+
+@code lang=http [#auth-example]
+~~~
+GET /v2/users/42 HTTP/1.1
+Authorization: Bearer ya29.A0AfH6...
+Accept: application/json
+~~~
+
+@h2 GET /v2/users [#list-users]
+@p Return a paginated list of users. Cursor-based pagination — pass the
+@p `next_cursor` from the previous response to fetch the next page.
+
+@h3 Query parameters [#list-users-params]
+@ul
+- `limit` (integer, 1..200, default 50)
+- `cursor` (opaque string, optional)
+- `q` (free-text search, optional)
+- `include_archived` (boolean, default false)
+
+@h3 Example response [#list-users-response]
+@code lang=json
+~~~
+{
+  "users": [
+    {"id": 42, "email": "alice@example.com", "created_at": "2026-04-01T10:00:00Z"},
+    {"id": 43, "email": "bob@example.com",   "created_at": "2026-04-02T11:30:00Z"}
+  ],
+  "next_cursor": "eyJsYXN0X2lkIjo0M30="
+}
+~~~
+
+@h2 POST /v2/users [#create-user]
+@p Create a new user. Returns 201 with the created entity.
+
+@h3 Request body [#create-user-body]
+@code lang=json
+~~~
+{
+  "email": "carol@example.com",
+  "name": "Carol Danvers",
+  "roles": ["editor"]
+}
+~~~
+
+@h3 Errors [#create-user-errors]
+@ul
+- 400 — missing or malformed field
+- 409 — email already in use
+- 422 — role does not exist
+- 500 — internal error (retry with exponential backoff)
+
+@h2 Rate limits [#rate-limits]
+@quote source="ops-runbook"
+> Default limit: 1000 req/min/token.
+> 429 responses include `Retry-After` in seconds.
+> Burst tolerance: 50 above the steady rate for 10 seconds.
+
+@h2 See also [#see-also]
+@ref #auth
+@ref #list-users
+@ref #create-user

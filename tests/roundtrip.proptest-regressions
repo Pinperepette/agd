@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 745262dbe8d69c077d81abee88714019d1e49d0bd637219fe6d0697641f77fab # shrinks to doc = Document { blocks: [Block { kind: BlockKind("meta"), attrs: {"a": Str("\"")}, id: None, content: Empty, span: Span { start: 0, end: 0 } }] }
+cc f79dcfb5f4b9cf0aa36cbcd07de188b7921f33e04709f7a9f5340e4fc91e54b5 # shrinks to doc = Document { blocks: [Block { kind: BlockKind("code"), attrs: {"_": Str("\"")}, id: None, content: Fenced(""), span: Span { start: 0, end: 0 } }] }
+cc 33e9775c9ac061b099abb2c78e4939879ab8b24f5033d60493f29983e6aaabb6 # shrinks to doc = Document { blocks: [Block { kind: BlockKind("code"), attrs: {}, id: None, content: Fenced("\n"), span: Span { start: 0, end: 0 } }] }

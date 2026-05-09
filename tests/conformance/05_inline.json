@@ -1,0 +1,77 @@
+{
+  "blocks": [
+    {
+      "kind": "h1",
+      "id": "inline",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "Inline formatting"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "p",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "A paragraph with "
+          },
+          {
+            "kind": "bold",
+            "text": "bold"
+          },
+          {
+            "kind": "text",
+            "text": ", "
+          },
+          {
+            "kind": "italic",
+            "text": "italic"
+          },
+          {
+            "kind": "text",
+            "text": ", and "
+          },
+          {
+            "kind": "code",
+            "text": "code"
+          },
+          {
+            "kind": "text",
+            "text": " — non-nestable."
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ref",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "ref",
+            "text": "inline"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "p",
+      "content": {
+        "type": "inline",
+        "value": [
+          {
+            "kind": "text",
+            "text": "Mismatched *delim still parses as text."
+          }
+        ]
+      }
+    }
+  ]
+}

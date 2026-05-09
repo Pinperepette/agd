@@ -1,0 +1,17 @@
+@meta title="Basic blocks" v=1
+
+@h1 Hello [#intro]
+@p Welcome to AGD.
+
+@h2 Lists [#lists]
+@ul [#features]
+- token-efficient
+- deterministic
+- block-addressable
+
+@h2 Quotes
+@quote source=spec
+> AGD is for agents.
+> Markdown is for humans.
+
+@! end of fixture

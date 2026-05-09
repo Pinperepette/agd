@@ -1,0 +1,11 @@
+@h1 Mixed structure [#root]
+
+@ol [#steps]
+- clone the repo
+- run cargo build
+- run cargo test
+
+@quote source="claude-1" [#status]
+> task done
+> see PR 482
+> follow-up tracked separately

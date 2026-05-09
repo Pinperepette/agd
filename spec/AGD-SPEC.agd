@@ -1,0 +1,192 @@
+@meta title="AGD — Agent Document Format" version="0.1" status=draft license=MIT
+
+@h1 AGD — Agent Document Format [#root]
+@p Specification version 0.1. AGD is a line-oriented text format optimised for
+@p LLM agents. It sits between Markdown and HTML: more deterministic than
+@p Markdown, more compact than HTML, and addressable per block so multiple
+@p agents can edit the same document without stepping on each other.
+
+@h2 Goals [#goals]
+@ul [#goals-list]
+- lower token cost than HTML or XML for the same logical content
+- deterministic parsing — single-pass, LL(1), no backtracking
+- human-readable in `cat file.agd`
+- stable per-block IDs for safe multi-agent editing
+- minimal syntax noise — one sigil, no closing tags
+- convertible to and from Markdown without information loss for the common subset
+
+@h2 Non-goals [#non-goals]
+@ul
+- displacing Markdown for human-authored prose
+- matching HTML for rich visual layout
+- supporting tables, footnotes, or math in v0.1
+
+@h2 Encoding [#encoding]
+@ul
+- UTF-8
+- LF line endings (CRLF must be normalised before parsing)
+- no byte-order mark
+- file extension `.agd`
+- MIME type `text/agd`
+- magic detection: first line matches `^@meta\b`
+
+@h2 Lexical structure [#lex]
+@p Every line is classified independently by leading bytes.
+
+@ul [#line-kinds]
+- block-start — line starts with `@` followed by a tag-name char
+- list item — line starts with `- ` (only meaningful inside `@ul` / `@ol`)
+- quote line — line starts with `> ` (only meaningful inside `@quote`)
+- fence — line is exactly `~~~`
+- comment — line starts with `@!`
+- empty — blank line; terminates open multi-line block scopes
+- continuation — any other line; verbatim content of an enclosing fence
+
+@h2 Block tags [#tags]
+@p Built-in tags. Custom tags must be `x-` prefixed.
+
+@ul [#builtin-tags]
+- `@meta` — document metadata; attributes only, no body
+- `@h1` `@h2` `@h3` `@h4` — headings; inline body, optional ID
+- `@p` — paragraph; inline body, optional ID
+- `@ul` `@ol` — list; items follow as `- ` lines
+- `@quote` — block quote; lines follow as `> ` lines
+- `@code` — fenced verbatim with `lang=` attribute
+- `@raw` — fenced verbatim, no language semantics
+- `@table` — fenced verbatim, treated as `@code lang=csv` in v0.1
+- `@ref` — block-level cross-reference; takes `#<id>` payload
+- `@include` — attribute-only directive; resolution is host-defined
+- `@!` — comment; preserved in AST but excluded from rendered output
+- `@x-…` — custom extension blocks; semantics defined by host
+
+@h2 Block-start syntax [#block-syntax]
+@p A block-start line has the form
+
+@code lang=agd
+~~~
+@<tag>[ <key>=<value> …][ <inline body>][ [#<id>]]
+~~~
+
+@p with these constraints
+
+@ul [#block-syntax-rules]
+- the `@` must be at column 0
+- tag names are lowercase ASCII; custom tags start with `x-`
+- attributes appear after the tag, separated by single spaces
+- attribute values are bareword, signed integer, `true` / `false`, or `"quoted string"`
+- only inline-bearing tags (`@h1`-`@h4`, `@p`) take a free-form inline body
+- the optional `[#<id>]` is always last on the line
+
+@h2 Inline grammar [#inline]
+@p Within an inline body, AGD recognises three non-nestable runs and
+@p otherwise treats every byte as plain text.
+
+@ul [#inline-tokens]
+- `*bold*` — emitted as `<strong>` in HTML
+- `_italic_` — emitted as `<em>` in HTML
+- `` `code` `` — emitted as inline `<code>`
+
+@p Mismatched delimiters degrade to plain text. Backslash escapes are not
+@p supported. Inline references (`@ref` inside running text) are not part
+@p of v0.1 — use a block-level `@ref #id` instead.
+
+@h2 Identifiers [#ids]
+@ul
+- pattern: `[a-zA-Z_][a-zA-Z0-9_-]*`
+- unique per document — duplicate IDs raise a parse error
+- optional content-hash suffix `[#name:abcd1234]` — 8-hex SHA-1 prefix; parsed in v0.1, validation deferred to v0.2
+
+@h2 Fenced content [#fences]
+@p `@code`, `@raw`, `@table`, and `@x-*` blocks may carry a verbatim body
+@p between two `~~~` fences. The block-start line carries any attributes
+@p (e.g. `lang=rust`); the body sits between the opening and closing
+@p fence lines and is preserved byte-for-byte (modulo the single LF the
+@p parser strips before the closing fence).
+
+@p A line equal to `~~~` always closes the current fence — there is no
+@p fence-depth escape in v0.1. Content that needs to embed `~~~` must use
+@p `@raw` and a different sentinel chosen at the application layer.
+
+@h2 Canonical form [#canonical]
+@p Two AGD documents are canonically equivalent when, after parsing, their
+@p ASTs are structurally equal. The canonical serialiser produces:
+
+@ul [#canonical-rules]
+- LF line endings
+- single space between tokens on the block-start line
+- attributes sorted alphabetically by key
+- ID always last on the block-start line
+- one blank line between top-level blocks
+- no trailing whitespace on any line
+- bareword values where possible; quoted strings only when necessary
+
+@h2 Parser shape [#parser]
+@p A reference parser fits in roughly 300 lines of any modern language.
+
+@ol [#parser-stages]
+- lexer — line classifier producing a stream of typed lines
+- block assembler — three-state machine consuming the line stream
+- inline parser — left-to-right scan over inline-bearing block bodies
+- AST validator — ID uniqueness and (optionally) reference resolution
+
+@h2 Editing model [#editing]
+@p Agents edit AGD documents through a small operation algebra. Operations
+@p are pure data — JSON-serialisable, replayable, conflict-detectable.
+
+@code lang=json
+~~~
+{"op": "replace",       "id": "intro", "with": {…block…}}
+{"op": "insert_after",  "id": "intro", "block": {…}}
+{"op": "insert_before", "id": "intro", "block": {…}}
+{"op": "delete",        "id": "intro"}
+{"op": "set_attr",      "id": "intro", "key": "lang", "value": "rust"}
+{"op": "remove_attr",   "id": "intro", "key": "lang"}
+~~~
+
+@p Two agents working on the same document apply ops independently. The host
+@p resolves conflicts (last-write-wins by default). Optional content hashes
+@p give an extra integrity check before applying.
+
+@h2 Token economy [#tokens]
+@p Measured with `cl100k_base` on the four files in `examples/`.
+
+@table
+~~~
+file,                        AGD,  Markdown, HTML, JSON
+api-doc.agd,                 555,   462,      701,  1465
+multi-agent-task.agd,        472,   395,      525,  1017
+readme.agd,                  304,   245,      404,   922
+tutorial.agd,                526,   436,      649,  1531
+~~~
+
+@p Honest summary
+
+@ul [#tokens-summary]
+- AGD is consistently smaller than HTML (-25% to -33%) and JSON (-50% to -67%)
+- AGD is *larger* than Markdown by 15-20% — the cost of explicit `@<tag>` prefixes and `[#id]` anchors
+- the tradeoff buys deterministic parsing, stable addressing, and a 200-line reference parser
+
+@h2 Comparison [#comparison]
+
+@quote source="design notes" [#comparison-summary]
+> Pick AGD when an LLM has to *edit* the document.
+> Pick Markdown when a human has to *write* it.
+> Pick HTML when a browser has to *render* it.
+> Pick JSON when a program has to *parse* it without ambiguity at any cost.
+
+@h2 Conformance [#conformance]
+@p A conformant parser MUST
+
+@ol [#conformance-must]
+- accept every input that matches the grammar in `grammar/agd.ebnf`
+- reject every input that violates an explicit invariant (duplicate ID, unterminated fence, unknown non-`x-` tag)
+- preserve all attribute keys and values verbatim
+- expose byte-offset spans for every block (recommended, not required)
+
+@h2 Future work [#future]
+@ul [#roadmap]
+- v0.2 — content-hash validation, tree-sitter grammar, VS Code extension
+- v0.3 — LSP server, fence-depth escapes, native table syntax
+- v1.0 — frozen grammar, IANA MIME registration, multi-language parser ports
+
+@! End of specification v0.1.

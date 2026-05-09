@@ -1,0 +1,19 @@
+@code lang=rust [#rs]
+~~~
+fn main() {
+    println!("hello");
+}
+~~~
+
+@code lang=json [#json]
+~~~
+{
+  "users": [{"id": 1, "name": "alice"}],
+  "next": null
+}
+~~~
+
+@raw type=svg [#logo]
+~~~
+<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>
+~~~

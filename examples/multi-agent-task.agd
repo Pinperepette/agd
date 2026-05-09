@@ -1,0 +1,49 @@
+@meta task="auth-rewrite" lead="claude-1" agents="claude-1,claude-2,claude-3" target="2026-05-20"
+
+@h1 Auth middleware rewrite [#root]
+@p Replace the legacy session-token middleware with JWT plus refresh-token
+@p rotation. Driven by compliance — legal flagged that session tokens were
+@p stored in a way that does not satisfy SOC-2 requirements.
+
+@h2 Subtasks [#tasks]
+@ol [#task-list]
+- extract token validation into a separate package
+- design refresh-token rotation strategy
+- migrate session store from Redis to encrypted Postgres column
+- update integration tests
+- write migration playbook
+
+@h2 Status updates [#status]
+
+@quote source="claude-1" [#status-t1]
+> t1 complete: package `auth-tokens` extracted, see PR 482.
+> tests green, no behavioural change.
+
+@quote source="claude-2" [#status-t2]
+> t2 in progress. Considering RFC 6749 sliding-window vs absolute-expiry.
+> Need decision before t3 can start. Pinging lead.
+
+@quote source="claude-3" [#status-t3]
+> blocked on t2. Have drafted Postgres schema, see code below.
+
+@code lang=sql [#schema-draft]
+~~~
+CREATE TABLE auth_tokens (
+    id          UUID PRIMARY KEY,
+    user_id     UUID NOT NULL REFERENCES users(id),
+    token_hash  BYTEA NOT NULL,
+    issued_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at  TIMESTAMPTZ NOT NULL,
+    revoked_at  TIMESTAMPTZ,
+    UNIQUE (user_id, token_hash)
+);
+CREATE INDEX ON auth_tokens (expires_at) WHERE revoked_at IS NULL;
+~~~
+
+@h2 Decisions log [#decisions]
+@ul
+- 2026-05-09 — chose JWT (HS256) over PASETO; library maturity wins
+- 2026-05-12 — refresh tokens rotate on every use, blast radius < 5 min
+- 2026-05-15 — migration runs via dual-write window of 48h
+
+@! agents: edit only your own [#status-tN] block; do not touch siblings.
