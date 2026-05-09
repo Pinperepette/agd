@@ -44,6 +44,10 @@ harness = false
 name = "parse"
 harness = false
 
+[[bench]]
+name = "retrieval"
+harness = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
