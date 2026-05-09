@@ -162,6 +162,19 @@ EXAMPLES:
         #[arg(long)]
         json: bool,
     },
+    /// List blocks that reference a given id. Inverse of `agd ref`:
+    /// answers "who points to this block?". Two reference channels are
+    /// recognised: inline `@ref` nodes (existing) and the `refs=`
+    /// attribute convention (`refs="#a,#b,#c"` on any block, leading
+    /// `#` optional). Fenced bodies are treated as opaque text.
+    Backlinks {
+        file: PathBuf,
+        /// Target block id (with or without leading `#`).
+        id: String,
+        /// Emit JSON instead of plain-text rows.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -205,6 +218,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Search { file, query, ignore_case, kind, json } => {
             cmd_search(&file, &query, ignore_case, kind.as_deref(), json)
         }
+        Cmd::Backlinks { file, id, json } => cmd_backlinks(&file, &id, json),
     }
 }
 
@@ -344,6 +358,62 @@ fn cmd_search(
             let kind = h["kind"].as_str().unwrap_or("");
             let excerpt = h["excerpt"].as_str().unwrap_or("");
             println!("{id}\t{kind}\t{excerpt}");
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_backlinks(file: &Path, target: &str, json: bool) -> Result<ExitCode> {
+    let target = target.strip_prefix('#').unwrap_or(target);
+    let src = read_input(file)?;
+    let doc = parse(&src)?;
+    let mut rows: Vec<(String, String, Option<String>)> = Vec::new();
+    for b in &doc.blocks {
+        let Some(id) = &b.id else { continue };
+        if id == target { continue; }
+        let mut hit = false;
+        visit_refs(&b.content, &mut |t| {
+            if t == target { hit = true; }
+        });
+        // Convention: attribute `refs="#a,#b,#c"` declares outbound
+        // links without polluting the body. Comma-separated, leading
+        // `#` optional, whitespace tolerated.
+        if !hit {
+            if let Some(refs_attr) = b.attrs.get("refs").and_then(|v| v.as_str()) {
+                for raw in refs_attr.split(',') {
+                    let r = raw.trim().trim_start_matches('#');
+                    if r == target {
+                        hit = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !hit { continue; }
+        let desc = b
+            .attrs
+            .get("desc")
+            .and_then(|v| v.as_str().map(str::to_string));
+        rows.push((id.clone(), b.kind.as_str().to_string(), desc));
+    }
+    if json {
+        let arr: Vec<serde_json::Value> = rows
+            .into_iter()
+            .map(|(id, kind, desc)| {
+                let mut obj = serde_json::json!({"id": id, "kind": kind});
+                if let Some(d) = desc {
+                    obj["desc"] = serde_json::Value::String(d);
+                }
+                obj
+            })
+            .collect();
+        println!("{}", serde_json::to_string(&arr)?);
+    } else {
+        for (id, kind, desc) in rows {
+            match desc {
+                Some(d) => println!("{id}\t{kind}\t{d}"),
+                None => println!("{id}\t{kind}"),
+            }
         }
     }
     Ok(ExitCode::SUCCESS)

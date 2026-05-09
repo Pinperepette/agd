@@ -115,3 +115,72 @@ fn convert_to_md_yields_markdown() {
         .success()
         .stdout(predicate::str::contains("# Hello"));
 }
+
+#[test]
+fn backlinks_lists_inbound_references_via_refs_attr() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        tmp.path(),
+        "@p target body [#target]\n\n@x-note refs=\"#target\" [#citing]\n~~~\nbody\n~~~\n\n@p unrelated [#other]\n",
+    )
+    .unwrap();
+    let out = agd()
+        .args(["backlinks"])
+        .arg(tmp.path())
+        .arg("#target")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let s = String::from_utf8(out.stdout).unwrap();
+    assert!(s.contains("citing"), "expected `citing` in: {s}");
+    assert!(!s.contains("other"), "unrelated block leaked: {s}");
+    assert!(!s.contains("target\t"), "target should not list itself: {s}");
+}
+
+#[test]
+fn backlinks_empty_when_no_inbound_refs() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), "@p one [#a]\n@p two [#b]\n").unwrap();
+    let out = agd()
+        .args(["backlinks"])
+        .arg(tmp.path())
+        .arg("#a")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let s = String::from_utf8(out.stdout).unwrap();
+    assert!(s.trim().is_empty(), "expected empty output, got: {s}");
+}
+
+#[test]
+fn backlinks_accepts_id_without_hash() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        tmp.path(),
+        "@p body [#t]\n\n@x-note refs=\"#t\" [#c]\n~~~\n~~~\n",
+    )
+    .unwrap();
+    agd()
+        .args(["backlinks"])
+        .arg(tmp.path())
+        .arg("t")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("c"));
+}
+
+#[test]
+fn backlinks_handles_multi_target_refs_attr() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        tmp.path(),
+        "@p first [#a]\n\n@p second [#b]\n\n@x-note refs=\"#a, #b\" [#citing]\n~~~\nbody\n~~~\n",
+    )
+    .unwrap();
+    let out_a = agd().args(["backlinks"]).arg(tmp.path()).arg("#a").output().unwrap();
+    assert!(out_a.status.success());
+    assert!(String::from_utf8(out_a.stdout).unwrap().contains("citing"));
+    let out_b = agd().args(["backlinks"]).arg(tmp.path()).arg("#b").output().unwrap();
+    assert!(out_b.status.success());
+    assert!(String::from_utf8(out_b.stdout).unwrap().contains("citing"));
+}
