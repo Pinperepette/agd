@@ -73,6 +73,48 @@ enum Cmd {
         #[arg(long)]
         check: bool,
     },
+    /// List every addressable block id (the document's table of contents).
+    /// Useful as the entry-point for selective retrieval workflows: pull
+    /// the TOC first, decide which block to fetch, then `agd get`.
+    Ids {
+        file: PathBuf,
+        /// Emit one id per line (default) or as a JSON array.
+        #[arg(long)]
+        json: bool,
+        /// Restrict to ids whose corresponding block has this kind.
+        #[arg(long)]
+        kind: Option<String>,
+    },
+    /// Print one or more addressable blocks by id, in canonical AGD form.
+    /// Pass multiple ids in a single call to amortise the parse cost
+    /// across all of them — the file is parsed once, blocks are fetched
+    /// from the in-memory index.
+    Get {
+        file: PathBuf,
+        /// One or more block ids (with or without leading `#`).
+        #[arg(required = true, num_args = 1..)]
+        ids: Vec<String>,
+        /// Emit blocks as a JSON array of AST nodes instead of AGD bytes.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Search block bodies for a substring. Returns the matching block
+    /// ids and a short excerpt around each match. Cheap entry point for
+    /// "where did I write about X?" without needing to know the id.
+    Search {
+        file: PathBuf,
+        /// Substring to search for in block bodies (Inline / Items / Fenced).
+        query: String,
+        /// Case-insensitive search.
+        #[arg(short = 'i', long)]
+        ignore_case: bool,
+        /// Restrict to blocks of this kind (e.g. `x-feedback`).
+        #[arg(long)]
+        kind: Option<String>,
+        /// Emit JSON instead of plain-text rows.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -111,7 +153,137 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Id { file, add, strip, in_place } => cmd_id(&file, add, strip, in_place),
         Cmd::Edit { file, op_json, in_place } => cmd_edit(&file, &op_json, in_place),
         Cmd::Ref { file, check } => cmd_ref(&file, check),
+        Cmd::Ids { file, json, kind } => cmd_ids(&file, json, kind.as_deref()),
+        Cmd::Get { file, ids, json } => cmd_get(&file, &ids, json),
+        Cmd::Search { file, query, ignore_case, kind, json } => {
+            cmd_search(&file, &query, ignore_case, kind.as_deref(), json)
+        }
     }
+}
+
+fn cmd_ids(file: &Path, json: bool, kind_filter: Option<&str>) -> Result<ExitCode> {
+    let src = read_input(file)?;
+    let doc = parse(&src)?;
+    let mut ids: Vec<(String, String)> = Vec::new();
+    for b in &doc.blocks {
+        if let Some(id) = &b.id {
+            if let Some(k) = kind_filter {
+                if b.kind.as_str() != k {
+                    continue;
+                }
+            }
+            ids.push((id.clone(), b.kind.as_str().to_string()));
+        }
+    }
+    if json {
+        let arr: Vec<serde_json::Value> = ids
+            .into_iter()
+            .map(|(id, kind)| serde_json::json!({"id": id, "kind": kind}))
+            .collect();
+        println!("{}", serde_json::to_string(&arr)?);
+    } else {
+        for (id, _) in ids {
+            println!("{id}");
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_get(file: &Path, ids: &[String], json: bool) -> Result<ExitCode> {
+    let src = read_input(file)?;
+    let doc = parse(&src)?;
+    let mut blocks: Vec<agd::Block> = Vec::with_capacity(ids.len());
+    for raw in ids {
+        let id = raw.strip_prefix('#').unwrap_or(raw);
+        let block = doc
+            .find(id)
+            .ok_or_else(|| anyhow!("no block with id `{id}`"))?;
+        blocks.push(block.clone());
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&blocks)?);
+    } else {
+        let one = agd::Document::with_blocks(blocks);
+        io::stdout().write_all(serialize(&one).as_bytes())?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_search(
+    file: &Path,
+    query: &str,
+    ignore_case: bool,
+    kind_filter: Option<&str>,
+    json: bool,
+) -> Result<ExitCode> {
+    use agd::ast::{BlockContent, Inline};
+    let src = read_input(file)?;
+    let doc = parse(&src)?;
+    let needle = if ignore_case { query.to_lowercase() } else { query.to_string() };
+
+    let inline_text = |nodes: &[Inline]| -> String {
+        let mut s = String::new();
+        for n in nodes {
+            match n {
+                Inline::Text(t) | Inline::Bold(t) | Inline::Italic(t) | Inline::Code(t) | Inline::Ref(t) => s.push_str(t),
+            }
+        }
+        s
+    };
+    let block_text = |b: &agd::Block| -> String {
+        match &b.content {
+            BlockContent::Inline(v) => inline_text(v),
+            BlockContent::Items(items) => items.iter().map(|line| inline_text(line)).collect::<Vec<_>>().join("\n"),
+            BlockContent::Fenced(s) => s.clone(),
+            BlockContent::Empty => String::new(),
+        }
+    };
+    let excerpt = |body: &str, hay: &str| -> String {
+        if let Some(idx) = hay.find(&needle) {
+            let start = idx.saturating_sub(40);
+            let end = (idx + needle.len() + 40).min(body.len());
+            // Find safe char boundaries for `body` (since hay may be lowercased copy of body)
+            let mut s = start;
+            while s > 0 && !body.is_char_boundary(s) { s -= 1; }
+            let mut e = end;
+            while e < body.len() && !body.is_char_boundary(e) { e += 1; }
+            let slice = &body[s..e];
+            let prefix = if s > 0 { "…" } else { "" };
+            let suffix = if e < body.len() { "…" } else { "" };
+            format!("{prefix}{}{suffix}", slice.replace('\n', " "))
+        } else {
+            String::new()
+        }
+    };
+
+    let mut hits: Vec<serde_json::Value> = Vec::new();
+    for b in &doc.blocks {
+        let id = match &b.id { Some(i) => i.clone(), None => continue };
+        if let Some(k) = kind_filter {
+            if b.kind.as_str() != k { continue; }
+        }
+        let body = block_text(b);
+        let hay = if ignore_case { body.to_lowercase() } else { body.clone() };
+        if hay.contains(&needle) {
+            hits.push(serde_json::json!({
+                "id": id,
+                "kind": b.kind.as_str(),
+                "excerpt": excerpt(&body, &hay),
+            }));
+        }
+    }
+
+    if json {
+        println!("{}", serde_json::to_string(&hits)?);
+    } else {
+        for h in &hits {
+            let id = h["id"].as_str().unwrap_or("");
+            let kind = h["kind"].as_str().unwrap_or("");
+            let excerpt = h["excerpt"].as_str().unwrap_or("");
+            println!("{id}\t{kind}\t{excerpt}");
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 fn cmd_parse(file: &Path, json: bool) -> Result<ExitCode> {
