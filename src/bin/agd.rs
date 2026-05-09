@@ -164,26 +164,42 @@ fn run(cli: Cli) -> Result<ExitCode> {
 fn cmd_ids(file: &Path, json: bool, kind_filter: Option<&str>) -> Result<ExitCode> {
     let src = read_input(file)?;
     let doc = parse(&src)?;
-    let mut ids: Vec<(String, String)> = Vec::new();
+    let mut rows: Vec<(String, String, Option<String>)> = Vec::new();
     for b in &doc.blocks {
-        if let Some(id) = &b.id {
-            if let Some(k) = kind_filter {
-                if b.kind.as_str() != k {
-                    continue;
-                }
+        let Some(id) = &b.id else { continue };
+        if let Some(k) = kind_filter {
+            if b.kind.as_str() != k {
+                continue;
             }
-            ids.push((id.clone(), b.kind.as_str().to_string()));
         }
+        // Surface a `desc=` attribute when present — short one-liner that
+        // tells an agent whether this block is worth fetching, without
+        // pulling the body. The convention is voluntary: blocks without
+        // desc= just don't get one in the TOC.
+        let desc = b
+            .attrs
+            .get("desc")
+            .and_then(|v| v.as_str().map(str::to_string));
+        rows.push((id.clone(), b.kind.as_str().to_string(), desc));
     }
     if json {
-        let arr: Vec<serde_json::Value> = ids
+        let arr: Vec<serde_json::Value> = rows
             .into_iter()
-            .map(|(id, kind)| serde_json::json!({"id": id, "kind": kind}))
+            .map(|(id, kind, desc)| {
+                let mut obj = serde_json::json!({"id": id, "kind": kind});
+                if let Some(d) = desc {
+                    obj["desc"] = serde_json::Value::String(d);
+                }
+                obj
+            })
             .collect();
         println!("{}", serde_json::to_string(&arr)?);
     } else {
-        for (id, _) in ids {
-            println!("{id}");
+        for (id, _kind, desc) in rows {
+            match desc {
+                Some(d) => println!("{id}\t{d}"),
+                None => println!("{id}"),
+            }
         }
     }
     Ok(ExitCode::SUCCESS)
