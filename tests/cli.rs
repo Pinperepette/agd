@@ -170,6 +170,110 @@ fn backlinks_accepts_id_without_hash() {
 }
 
 #[test]
+fn get_with_backlinks_appends_inbound() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        tmp.path(),
+        "@p target body [#target]\n\n@x-note refs=\"#target\" [#citing]\n~~~\nbody\n~~~\n",
+    )
+    .unwrap();
+    let out = agd()
+        .args(["get", "--with-backlinks"])
+        .arg(tmp.path())
+        .arg("#target")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let s = String::from_utf8(out.stdout).unwrap();
+    assert!(s.contains("[#target]"), "missing requested block: {s}");
+    assert!(s.contains("[#citing]"), "missing inbound: {s}");
+}
+
+#[test]
+fn get_follow_refs_one_hop() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        tmp.path(),
+        "@p root [#root]\n\n@x-note refs=\"#root\" [#mid]\n~~~\nm\n~~~\n\n@x-note refs=\"#mid\" [#leaf]\n~~~\nl\n~~~\n",
+    )
+    .unwrap();
+    let out = agd()
+        .args(["get", "--follow-refs"])
+        .arg(tmp.path())
+        .arg("#leaf")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let s = String::from_utf8(out.stdout).unwrap();
+    assert!(s.contains("[#leaf]"));
+    assert!(s.contains("[#mid]"), "depth=1 should reach mid: {s}");
+    assert!(!s.contains("[#root]"), "depth=1 should NOT reach root: {s}");
+}
+
+#[test]
+fn get_follow_refs_full_chain() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        tmp.path(),
+        "@p root [#root]\n\n@x-note refs=\"#root\" [#mid]\n~~~\nm\n~~~\n\n@x-note refs=\"#mid\" [#leaf]\n~~~\nl\n~~~\n",
+    )
+    .unwrap();
+    let out = agd()
+        .args(["get", "--follow-refs", "--depth", "5"])
+        .arg(tmp.path())
+        .arg("#leaf")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let s = String::from_utf8(out.stdout).unwrap();
+    assert!(s.contains("[#leaf]"));
+    assert!(s.contains("[#mid]"));
+    assert!(s.contains("[#root]"), "depth=5 should reach root: {s}");
+}
+
+#[test]
+fn get_follow_refs_handles_cycles() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        tmp.path(),
+        "@x-note refs=\"#b\" [#a]\n~~~\na\n~~~\n\n@x-note refs=\"#a\" [#b]\n~~~\nb\n~~~\n",
+    )
+    .unwrap();
+    let out = agd()
+        .args(["get", "--follow-refs", "--depth", "10"])
+        .arg(tmp.path())
+        .arg("#a")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "should not stack overflow on cycles");
+    let s = String::from_utf8(out.stdout).unwrap();
+    assert!(s.contains("[#a]") && s.contains("[#b]"));
+    assert_eq!(s.matches("[#a]").count(), 1, "no duplicates: {s}");
+    assert_eq!(s.matches("[#b]").count(), 1, "no duplicates: {s}");
+}
+
+#[test]
+fn get_combines_follow_refs_and_backlinks() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        tmp.path(),
+        "@p root [#root]\n\n@x-note refs=\"#root\" [#mid]\n~~~\nm\n~~~\n\n@x-note refs=\"#mid\" [#cite-mid]\n~~~\nc\n~~~\n",
+    )
+    .unwrap();
+    let out = agd()
+        .args(["get", "--follow-refs", "--depth", "2", "--with-backlinks"])
+        .arg(tmp.path())
+        .arg("#mid")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let s = String::from_utf8(out.stdout).unwrap();
+    assert!(s.contains("[#mid]"));
+    assert!(s.contains("[#root]"), "follow-refs should reach root: {s}");
+    assert!(s.contains("[#cite-mid]"), "backlinks should pick up citer: {s}");
+}
+
+#[test]
 fn backlinks_handles_multi_target_refs_attr() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(

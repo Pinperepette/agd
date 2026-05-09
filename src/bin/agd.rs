@@ -135,7 +135,11 @@ EXAMPLES:
     /// Print one or more addressable blocks by id, in canonical AGD form.
     /// Pass multiple ids in a single call to amortise the parse cost
     /// across all of them — the file is parsed once, blocks are fetched
-    /// from the in-memory index.
+    /// from the in-memory index. Two optional flags expand the result
+    /// set in graph-theoretic ways: `--with-backlinks` appends every
+    /// block that points to the requested ids; `--follow-refs` walks
+    /// the `refs=` attribute (and inline `@ref`) outbound up to
+    /// `--depth` hops. Both flags are cycle-safe via id deduplication.
     Get {
         file: PathBuf,
         /// One or more block ids (with or without leading `#`).
@@ -144,6 +148,18 @@ EXAMPLES:
         /// Emit blocks as a JSON array of AST nodes instead of AGD bytes.
         #[arg(long)]
         json: bool,
+        /// For each requested id, also include blocks that reference
+        /// it (inverse of `agd backlinks`, inlined into the get).
+        #[arg(long)]
+        with_backlinks: bool,
+        /// Follow `refs=` attribute and inline `@ref` outbound,
+        /// transitively up to `--depth` hops.
+        #[arg(long)]
+        follow_refs: bool,
+        /// Max hops for `--follow-refs`. Default 1. Ignored without
+        /// `--follow-refs`.
+        #[arg(long, default_value_t = 1, requires = "follow_refs")]
+        depth: usize,
     },
     /// Search block bodies for a substring. Returns the matching block
     /// ids and a short excerpt around each match. Cheap entry point for
@@ -214,7 +230,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Edit { file, op_json, in_place } => cmd_edit(&file, &op_json, in_place),
         Cmd::Ref { file, check } => cmd_ref(&file, check),
         Cmd::Ids { file, json, kind } => cmd_ids(&file, json, kind.as_deref()),
-        Cmd::Get { file, ids, json } => cmd_get(&file, &ids, json),
+        Cmd::Get { file, ids, json, with_backlinks, follow_refs, depth } => {
+            cmd_get(&file, &ids, json, with_backlinks, follow_refs, depth)
+        }
         Cmd::Search { file, query, ignore_case, kind, json } => {
             cmd_search(&file, &query, ignore_case, kind.as_deref(), json)
         }
@@ -266,17 +284,91 @@ fn cmd_ids(file: &Path, json: bool, kind_filter: Option<&str>) -> Result<ExitCod
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_get(file: &Path, ids: &[String], json: bool) -> Result<ExitCode> {
+fn cmd_get(
+    file: &Path,
+    ids: &[String],
+    json: bool,
+    with_backlinks: bool,
+    follow_refs: bool,
+    depth: usize,
+) -> Result<ExitCode> {
+    use std::collections::BTreeSet;
     let src = read_input(file)?;
     let doc = parse(&src)?;
-    let mut blocks: Vec<agd::Block> = Vec::with_capacity(ids.len());
-    for raw in ids {
-        let id = raw.strip_prefix('#').unwrap_or(raw);
-        let block = doc
-            .find(id)
+
+    let mut visited: BTreeSet<String> = BTreeSet::new();
+    let mut order: Vec<String> = Vec::new();
+    let requested: Vec<String> = ids
+        .iter()
+        .map(|s| s.strip_prefix('#').unwrap_or(s).to_string())
+        .collect();
+    for id in &requested {
+        if visited.contains(id) { continue; }
+        doc.find(id)
             .ok_or_else(|| anyhow!("no block with id `{id}`"))?;
-        blocks.push(block.clone());
+        visited.insert(id.clone());
+        order.push(id.clone());
     }
+
+    if follow_refs {
+        let mut frontier: Vec<String> = requested.clone();
+        for _ in 0..depth {
+            let mut next: Vec<String> = Vec::new();
+            for fid in &frontier {
+                let Some(b) = doc.find(fid) else { continue };
+                let mut targets: Vec<String> = Vec::new();
+                if let Some(refs_attr) = b.attrs.get("refs").and_then(|v| v.as_str()) {
+                    for raw in refs_attr.split(',') {
+                        let r = raw.trim().trim_start_matches('#').to_string();
+                        if !r.is_empty() {
+                            targets.push(r);
+                        }
+                    }
+                }
+                visit_refs(&b.content, &mut |t| targets.push(t.to_string()));
+                for t in targets {
+                    if visited.contains(&t) { continue; }
+                    if doc.find(&t).is_none() { continue; }
+                    visited.insert(t.clone());
+                    order.push(t.clone());
+                    next.push(t);
+                }
+            }
+            if next.is_empty() { break; }
+            frontier = next;
+        }
+    }
+
+    if with_backlinks {
+        for target in &requested {
+            for b in &doc.blocks {
+                let Some(bid) = &b.id else { continue };
+                if visited.contains(bid) { continue; }
+                let mut hit = false;
+                visit_refs(&b.content, &mut |t| {
+                    if t == target { hit = true; }
+                });
+                if !hit {
+                    if let Some(refs_attr) = b.attrs.get("refs").and_then(|v| v.as_str()) {
+                        for raw in refs_attr.split(',') {
+                            let r = raw.trim().trim_start_matches('#');
+                            if r == target { hit = true; break; }
+                        }
+                    }
+                }
+                if hit {
+                    visited.insert(bid.clone());
+                    order.push(bid.clone());
+                }
+            }
+        }
+    }
+
+    let blocks: Vec<agd::Block> = order
+        .iter()
+        .filter_map(|id| doc.find(id).map(|b| b.clone()))
+        .collect();
+
     if json {
         println!("{}", serde_json::to_string_pretty(&blocks)?);
     } else {
