@@ -197,19 +197,55 @@ them in tests.
 
 ## Token economy
 
-Measured with `cl100k_base` over synthetic corpora of 100, 1k, 10k,
-and 100k blocks. The gap is stable across scale.
+Two numbers matter, not one. Measured with `cl100k_base` —
+see [`benches/BENCHMARKS.md`](benches/BENCHMARKS.md) section 7
+and [`benches/RETRIEVAL.md`](benches/RETRIEVAL.md) for the full data.
+
+### Whole-document loading
+
+The cost of giving the entire document to the model in a single request:
 
 | Format       | vs AGD                       |
 |--------------|------------------------------|
 | HTML         | **+16% to +19%** more tokens |
 | JSON         | **+135% to +145%** more tokens |
-| Markdown     | **−18% to −22%** — Markdown wins on raw count |
+| Markdown     | **−18% to −22%** — Markdown wins by ~20% |
 
-The honest tradeoff: AGD costs ~20% more tokens than CommonMark in
-exchange for deterministic parsing, canonical round-trip, and stable
-block IDs. If you only need to render prose to a human, use Markdown.
-If an agent has to *edit* the document, AGD pays back fast.
+Markdown is consistently smaller. That is the honest tradeoff for
+deterministic parsing, canonical round-trip, and stable block IDs.
+
+### Selective retrieval (where AGD flips the result)
+
+The realistic agent shape: "find the block called `#auth-flow` and
+answer about it". With AGD, an agent loads the Table of Contents (just
+the ids), picks the target id, requests only that block. With Markdown
+there is no stable id mechanism, so the agent must load the whole
+document and pattern-match the heading.
+
+| blocks | AGD selective (TOC + block) | Markdown whole-doc | speedup |
+|---:|---:|---:|---:|
+| 100 | 231 tokens | 2,074 tokens | **9.0×** |
+| 1,000 | 1,720 tokens | 20,502 tokens | **11.9×** |
+| 10,000 | 14,902 tokens | 217,170 tokens | **14.6×** |
+
+Numbers measured by `cargo run --release --bench retrieval`. Savings
+grow with document size — at 100k blocks the selective request is
+roughly 1/20 of Markdown's whole-doc cost.
+
+### When the +20% is worth it
+
+If your agent always loads whole documents, AGD costs more for nothing.
+Use Markdown.
+
+If your agent does targeted block-level retrieval, you pay the +20%
+once on whole-doc loads (rare) and save **9×–14×** on every selective
+request (common). The crossover is around the second selective lookup
+per document.
+
+If your agent edits the document over time and you care about
+deterministic ops, audit trail, and replay — that is the multi-agent
+edit story, where AGD is designed to be the answer regardless of token
+counts.
 
 ## Edit safely from many agents
 
