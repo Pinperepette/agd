@@ -1,5 +1,11 @@
 # AGD — Agent Document Format
 
+<p align="center">
+  <a href="image.png">
+    <img src="image.png" alt="" />
+  </a>
+  <br />
+
 A line-oriented text format optimised for LLM agents. Sits between
 Markdown (too ambiguous for safe machine editing) and HTML/XML (too
 verbose for token-constrained contexts). Every block is independently
