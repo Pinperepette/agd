@@ -58,10 +58,57 @@ enum Cmd {
         #[arg(short, long)]
         in_place: bool,
     },
-    /// Apply an edit operation supplied as a JSON object.
+    /// Apply an edit operation supplied as a JSON object. See OPERATION
+    /// SCHEMA below for the full grammar with examples.
+    #[command(long_about = "\
+Apply an edit operation supplied as a JSON object.
+
+OPERATION SCHEMA (six variants, all keyed by stable block id):
+
+  {\"op\":\"replace\",       \"id\":\"X\", \"with\":  {block}}
+  {\"op\":\"insert_after\",  \"id\":\"X\", \"block\": {block}}
+  {\"op\":\"insert_before\", \"id\":\"X\", \"block\": {block}}
+  {\"op\":\"delete\",        \"id\":\"X\"}
+  {\"op\":\"set_attr\",      \"id\":\"X\", \"key\":\"k\", \"value\": <str|int|bool>}
+  {\"op\":\"remove_attr\",   \"id\":\"X\", \"key\":\"k\"}
+
+A {block} descriptor is:
+
+  {
+    \"kind\":   \"x-note\",
+    \"id\":     \"my-id\",
+    \"attrs\":  {\"desc\": \"...\"},
+    \"content\":{\"type\":\"fenced|inline|items|empty\", \"value\": ...}
+  }
+
+CONTENT TYPE rules:
+
+  inline   for h1-h4 / p / ref       value: [{\"kind\":\"text\",\"text\":\"...\"}]
+  items    for ul / ol / quote       value: [[{Inline},...], ...]
+  fenced   for code / raw / table /  value: \"verbatim string\"
+           x-* custom blocks
+  empty    for meta / include        value: omitted
+
+GOTCHA: inline-bearing tags (h1-h4, p) take their text via inline
+content, NOT a fence body. If you put your body in `content.value`
+as a fenced string on a heading, the parser treats it as plain text
+of the heading, not as a separate body.
+
+EXAMPLES:
+
+  # add a memory entry under #h-feedback heading
+  agd edit memory.agd -i --op '{
+    \"op\":\"insert_after\",\"id\":\"h-feedback\",
+    \"block\":{\"kind\":\"x-feedback\",\"id\":\"feedback-X\",
+              \"attrs\":{\"desc\":\"...\"},
+              \"content\":{\"type\":\"fenced\",\"value\":\"body...\"}}}'
+
+  # mark an entry as done by setting an attribute
+  agd edit doc.agd -i --op '{\"op\":\"set_attr\",\"id\":\"task-3\",\"key\":\"done\",\"value\":true}'
+")]
     Edit {
         file: PathBuf,
-        /// JSON `{"op":"replace","id":"x","with":{...}}` etc.
+        /// JSON Operation. See `agd edit --help` for the schema and examples.
         #[arg(long = "op")]
         op_json: String,
         #[arg(short, long)]
