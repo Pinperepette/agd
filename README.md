@@ -80,6 +80,10 @@ agd ids    file.agd --kind x-feedback          # filter TOC by block kind
 agd search file.agd "redis" -i                 # grep on block bodies, returns matching ids
 agd get    file.agd '#a' '#b' '#c'             # fetch one or many blocks (single parse)
 
+agd backlinks file.agd '#id'                   # who points to #id (inline @ref + refs= attr)
+agd get  file.agd '#id' --with-backlinks       # fetch #id and every block that cites it
+agd get  file.agd '#id' --follow-refs --depth 3 # walk refs= outbound transitively
+
 agd edit file.agd --op '{
   "op":    "set_attr",
   "id":    "intro",
@@ -324,18 +328,23 @@ agd/
 
 ## Status
 
-v0.1 — grammar frozen, full toolchain, **89 tests** across 9 suites
+v0.3 — grammar frozen, full toolchain, **98 tests** across 10 suites
 (unit / property / conformance / determinism / recovery / CLI / corpus /
 index / doc-tests), plus a reproducible benchmark report at four scales.
 
 Format and parser API are stable from this point. Breaking changes
 require a major version bump.
 
+Recent CLI additions:
+- v0.1.1 — `Document::apply` indexed-by-default; `agd ids` surfaces `desc=`; `agd search`; batch `agd get`
+- v0.2.0 — `agd backlinks` + `refs="#a,#b"` attribute convention as a graph channel
+- v0.3.0 — `agd get --with-backlinks` and `--follow-refs --depth N` for one-shot traversal
+
 ## Roadmap
 
-- v0.2 — `Document::apply` indexed-by-default; content-hash enforcement;
-  VS Code extension; tree-sitter grammar
-- v0.3 — LSP server; fence-depth escapes; native table syntax
+- v0.4 — fix the parser's inline `@ref` (grammar already allows it);
+  `agd traverse` as a top-level graph-walker; content-hash enforcement
+- v0.5 — VS Code extension; tree-sitter grammar; LSP server
 - v1.0 — frozen grammar; IANA MIME registration; multi-language parser ports
 
 ## License
