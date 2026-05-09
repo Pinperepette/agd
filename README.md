@@ -90,22 +90,40 @@ println!("{}", serialize(&doc));
 
 See `src/edit.rs` for the full operation algebra.
 
+## Performance
+
+Full benchmark report at [`benches/BENCHMARKS.md`](benches/BENCHMARKS.md). Run
+locally with `cargo run --release --bin agd-bench`. Headlines:
+
+| Axis                  | Result (release, single-thread) |
+|-----------------------|-----|
+| Parse throughput      | ~60 MB/s sustained at 100k blocks |
+| Serialize throughput  | ~830 MB/s — 10× faster than parse |
+| Edit op (1k blocks)   | ~2 µs — 500k edits/sec via library API |
+| Find by ID (10k blocks) | linear `Document::find` 21 µs vs indexed `DocumentIndex` 36 ns — **583× speedup** |
+| Memory overhead       | AST ~4× the source byte size |
+
+vs. CommonMark via `pulldown-cmark`: AGD is **2–3× slower** at parse on
+large documents (pulldown is one of the most optimised MD parsers in
+existence; we are a hand-rolled v0.1). On small documents (under 1k blocks)
+AGD is faster because there is no setup overhead.
+
 ## Token economy
 
-Measured with `cl100k_base` over `examples/`. See `benches/RESULTS.md`
-for the live numbers.
+Measured with `cl100k_base` over corpora of 100 → 100,000 blocks. See
+[`benches/BENCHMARKS.md`](benches/BENCHMARKS.md) section 7 for the full table.
 
-| Format       | vs AGD          |
-|--------------|-----------------|
-| HTML         | **+10 to +30%** more tokens |
-| JSON         | **+115 to +200%** more tokens |
-| Markdown     | -15 to -25% — Markdown wins on raw count |
+| Format       | vs AGD            |
+|--------------|-------------------|
+| HTML         | **+16 to +19%** more tokens |
+| JSON         | **+135 to +145%** more tokens |
+| Markdown     | **-18 to -22%** — Markdown wins on raw count |
 
-Markdown is consistently smaller — that is the honest tradeoff. AGD
-costs ~20% more tokens than CommonMark in exchange for unambiguous
-parsing and stable block IDs. If you only need to render prose to a
-human, use Markdown. If an agent has to *edit* the document, AGD pays
-back fast.
+Markdown is consistently smaller — that is the honest tradeoff. AGD costs
+~20% more tokens than CommonMark in exchange for deterministic parsing,
+canonical round-trip, and stable block IDs. If an agent only needs to
+render prose to a human, use Markdown. If an agent has to *edit* the
+document, AGD pays back fast.
 
 ## Specification
 
@@ -132,17 +150,24 @@ agd/
 │   ├── id.rs                   ID slugging + content hashing
 │   ├── convert/                MD ↔ AGD ↔ HTML
 │   └── bin/agd.rs              CLI driver
+├── src/bin/
+│   ├── agd.rs                  user-facing CLI
+│   └── agd-bench.rs            comprehensive benchmark runner
 └── tests/
     ├── conformance/            paired .agd / .json fixtures
     ├── conformance.rs          corpus runner
     ├── roundtrip.rs            proptest: serialize → parse → equal
+    ├── determinism.rs          same input → same AST, repeatedly
+    ├── recovery.rs             partial-input + malformed-input behaviour
     └── cli.rs                  binary integration tests
 ```
 
 ## Status
 
-v0.1 — grammar frozen, full toolchain, ≥ 67 tests across unit /
-property / conformance / CLI suites.
+v0.1 — grammar frozen, full toolchain, **≥ 89 tests** across unit /
+property / conformance / determinism / recovery / CLI suites, plus a
+reproducible benchmark suite at four different scales (100 → 100,000
+blocks).
 
 ## License
 

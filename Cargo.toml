@@ -47,3 +47,7 @@ harness = false
 lto = "thin"
 codegen-units = 1
 strip = true
+
+[[bin]]
+name = "agd-bench"
+path = "src/bin/agd-bench.rs"

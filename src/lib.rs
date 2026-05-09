@@ -20,9 +20,11 @@
 
 pub mod ast;
 pub mod convert;
+pub mod corpus;
 pub mod edit;
 pub mod error;
 pub mod id;
+pub mod index;
 pub mod lexer;
 pub mod parser;
 pub mod serializer;
