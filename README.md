@@ -92,6 +92,102 @@ agd edit file.agd --op '{
 }'
 ```
 
+## Using AGD with agents
+
+[`agd-memory`](https://github.com/Pinperepette/agd-memory) is a Claude
+Code plugin built on top of this format. The format and CLI themselves
+are framework-agnostic — any agent that can spawn a subprocess, speak
+MCP, or read a text file can use AGD as a memory or document layer.
+
+Three integration patterns, in order of friction.
+
+### 1. Subprocess from any language
+
+The lowest-friction path: shell out to the `agd` binary. Works from
+Python, Node, Go, shell scripts, and any agent framework that allows
+tool calls (LangChain, OpenAI Agents SDK, Autogen, custom loops).
+
+```python
+import json
+import subprocess
+
+def memory_toc(path: str) -> str:
+    return subprocess.check_output(["agd", "ids", path]).decode()
+
+def memory_get(path: str, *ids: str) -> str:
+    return subprocess.check_output(["agd", "get", path, *ids]).decode()
+
+def memory_save(path: str, op: dict) -> None:
+    subprocess.run(
+        ["agd", "edit", path, "--op", json.dumps(op)],
+        check=True,
+    )
+
+# typical agent step: scope query → relevant block → reason
+toc = memory_toc("project.agd")
+ids = pick_relevant(toc, query="auth flow")    # your model decides
+context = memory_get("project.agd", *ids)
+```
+
+`ids`, `get`, `edit`, and `search` are stable since v0.2 and cover
+the full surface needed to use AGD as a memory layer. Selective
+retrieval at this layer is what gives the **9×–14×** token savings
+in the table above.
+
+### 2. MCP server
+
+Any MCP-compatible client (Cline, Continue, Cursor with MCP, custom
+hosts via the SDK) can consume an MCP server that wraps `agd`. The
+`agd-memory` plugin ships a reference implementation at
+[`mcp_servers/server.py`](https://github.com/Pinperepette/agd-memory/blob/main/mcp_servers/server.py)
+exposing four tools (`toc`, `search`, `get`, `save`). It is plain
+Python MCP code with no Claude-Code-specific hooks — point any MCP
+client at it and you have AGD-as-memory.
+
+```jsonc
+// example MCP client config
+{
+  "mcpServers": {
+    "agd-memory": {
+      "command": "python3",
+      "args": ["/path/to/agd-memory/mcp_servers/server.py"]
+    }
+  }
+}
+```
+
+### 3. Direct file read/write (no binary)
+
+If you cannot ship the Rust binary (AWS Lambda without a Rust
+toolchain, browser, restricted environments), `.agd` files are
+line-oriented and parseable in ~30 lines of any language:
+
+```python
+import re
+
+BLOCK = re.compile(
+    r'@\w+[^\[]*\[#([^\]]+)\]\n(~+)\n(.*?)\n\2',
+    re.DOTALL,
+)
+
+def read_agd(text: str) -> dict[str, str]:
+    return {m.group(1): m.group(3) for m in BLOCK.finditer(text)}
+```
+
+This loses the parser's guarantees (canonical round-trip,
+determinism, no-panic recovery on malformed input) — use it only
+for read-only flows where you control the producer side. Full
+grammar at [`grammar/agd.ebnf`](grammar/agd.ebnf).
+
+### When to use which
+
+| pattern | when |
+|---|---|
+| Subprocess | Most agents. One process per op, ~13 ms overhead. Acceptable up to a few ops/sec. |
+| MCP server | Agent already speaks MCP. No separate subprocess fan-out, structured tool schemas. |
+| Direct read | Read-only path; producer side controlled; binary cannot be deployed. |
+| `agdd` daemon (next section) | High-throughput multi-agent editing, hundreds of ops/sec. |
+
 ## Daemon mode (`agdd`)
 
 For multi-agent editing where many ops land per second, the CLI
