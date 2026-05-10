@@ -62,7 +62,7 @@ fn classify(s: &str) -> LineKind {
     if s.is_empty() {
         return LineKind::Empty;
     }
-    if s == "~~~" {
+    if is_fence_line(s) {
         return LineKind::Fence;
     }
     let bytes = s.as_bytes();
@@ -86,6 +86,13 @@ fn classify(s: &str) -> LineKind {
 #[inline]
 fn is_tag_first(b: u8) -> bool {
     b.is_ascii_alphabetic() || b == b'_'
+}
+
+/// A fence line is a run of `~` of length ≥ 3, with no other characters.
+/// Variable length lets a body containing `~~~` be wrapped by `~~~~` (or more).
+#[inline]
+pub(crate) fn is_fence_line(s: &str) -> bool {
+    s.len() >= 3 && s.bytes().all(|b| b == b'~')
 }
 
 #[cfg(test)]
@@ -147,6 +154,26 @@ mod tests {
                 LineKind::Fence,
             ]
         );
+    }
+
+    #[test]
+    fn longer_fences_recognised() {
+        // Lines composed of ≥3 tildes are all classified as Fence.
+        for n in 3..=8 {
+            let s = "~".repeat(n);
+            assert_eq!(kinds(&format!("{}\n", s)), vec![LineKind::Fence], "len={n}");
+        }
+    }
+
+    #[test]
+    fn two_tildes_is_continuation() {
+        assert_eq!(kinds("~~\n"), vec![LineKind::Continuation]);
+    }
+
+    #[test]
+    fn tildes_with_other_chars_is_continuation() {
+        assert_eq!(kinds("~~~ x\n"), vec![LineKind::Continuation]);
+        assert_eq!(kinds(" ~~~\n"), vec![LineKind::Continuation]);
     }
 
     #[test]

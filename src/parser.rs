@@ -225,32 +225,34 @@ impl<'a> Parser<'a> {
         if self.pos >= self.lines.len() || self.lines[self.pos].kind != LineKind::Fence {
             return Err(self.err(opener, "expected `~~~` fence after block start"));
         }
-        let _open = self.lines[self.pos];
+        let open = self.lines[self.pos];
+        let opener_len = open.slice(self.src).len();
         self.pos += 1;
         let content_start = if self.pos < self.lines.len() {
             self.lines[self.pos].span.start as usize
         } else {
             self.src.len()
         };
-        let mut close_end = None;
+        let mut close_end_len: Option<(usize, usize)> = None;
         while self.pos < self.lines.len() {
             let line = self.lines[self.pos];
             if line.kind == LineKind::Fence {
-                close_end = Some(line.span.end as usize);
-                self.pos += 1;
-                break;
+                let len = line.slice(self.src).len();
+                // Closing fence must be at least as long as the opener.
+                // Shorter tilde-only lines are part of the body.
+                if len >= opener_len {
+                    close_end_len = Some((line.span.end as usize, len));
+                    self.pos += 1;
+                    break;
+                }
             }
             // Inside a fence, every other line kind is verbatim content.
             self.pos += 1;
         }
-        let close_end = close_end.ok_or_else(|| AgdError::UnterminatedFence { line: opener.line_no })?;
-        // Content = bytes from after-opening-fence newline to start of closing fence.
-        // We need to walk back to find the start of the closing fence's line.
-        // Simpler: rebuild by joining lines we passed through.
-        // Cheaper: compute via spans.
-        // The content spans `content_start` to `close_line_start` (start of `~~~` line).
-        // We tracked close_end (end of `~~~` line). Backtrack to start of that line.
-        let close_line_start = close_end - "~~~".len();
+        let (close_end, close_len) = close_end_len
+            .ok_or_else(|| AgdError::UnterminatedFence { line: opener.line_no })?;
+        // Backtrack from end-of-close-fence by its actual length to find its start.
+        let close_line_start = close_end - close_len;
         let raw = if close_line_start >= content_start {
             // Strip trailing newline before the closing fence (the LF that ends the previous line).
             let mut s = &self.src[content_start..close_line_start];
@@ -655,6 +657,24 @@ mod tests {
     #[test]
     fn unterminated_fence_errors() {
         assert!(matches!(parse("@code\n~~~\nstuff\n"), Err(AgdError::UnterminatedFence { .. })));
+    }
+
+    #[test]
+    fn longer_opener_allows_inner_three_tildes() {
+        // 4-tilde opener; an inner `~~~` line is body, not the closer.
+        let src = "@x-note\n~~~~\ninside has ~~~ in it\n~~~\nstill body\n~~~~\n";
+        let doc = parse(src).unwrap();
+        let body = doc.blocks[0].content.as_fenced().unwrap();
+        assert_eq!(body, "inside has ~~~ in it\n~~~\nstill body");
+    }
+
+    #[test]
+    fn closer_must_match_or_exceed_opener_length() {
+        // 5-tilde opener: a 4-tilde line is body, only a ≥5-tilde line closes.
+        let src = "@x-note\n~~~~~\nbody1\n~~~~\nbody2\n~~~~~\n";
+        let doc = parse(src).unwrap();
+        let body = doc.blocks[0].content.as_fenced().unwrap();
+        assert_eq!(body, "body1\n~~~~\nbody2");
     }
 
     #[test]

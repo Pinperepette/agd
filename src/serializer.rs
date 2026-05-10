@@ -88,18 +88,32 @@ fn write_block(out: &mut String, block: &Block) {
             }
         }
         BlockContent::Fenced(s) => {
-            // Always append a trailing LF; the parser strips exactly one
-            // LF before the closing fence, so this preserves any content
-            // (including content that already ends in '\n').
-            out.push_str("~~~\n");
+            // Variable-length fence: pick the smallest length ≥ 3 that is
+            // strictly longer than any tilde-only line inside the body, so
+            // bodies containing `~~~` round-trip losslessly.
+            let fence_len = pick_fence_len(s);
+            let fence: String = "~".repeat(fence_len);
+            out.push_str(&fence);
+            out.push('\n');
             if !s.is_empty() {
                 out.push_str(s);
                 out.push('\n');
             }
-            out.push_str("~~~\n");
+            out.push_str(&fence);
+            out.push('\n');
         }
         _ => {}
     }
+}
+
+fn pick_fence_len(body: &str) -> usize {
+    let mut max_run = 0usize;
+    for line in body.split('\n') {
+        if !line.is_empty() && line.bytes().all(|b| b == b'~') {
+            max_run = max_run.max(line.len());
+        }
+    }
+    std::cmp::max(3, max_run + 1)
 }
 
 fn write_attr_value(out: &mut String, v: &AttrValue) {
@@ -229,5 +243,32 @@ mod tests {
     fn quote_block_roundtrip() {
         let src = "@quote source=rfc\n> first\n> second\n";
         assert_eq!(round(src), src);
+    }
+
+    #[test]
+    fn body_with_internal_three_tildes_roundtrips() {
+        // Critical: a body containing a `~~~` line must round-trip without
+        // corruption. Source uses a 4-tilde wrapper; serializer must keep
+        // it ≥4 because the body still contains `~~~`.
+        let src = "@x-note\n~~~~\nbefore\n~~~\nafter\n~~~~\n";
+        let doc = parse(src).unwrap();
+        let body = doc.blocks[0].content.as_fenced().unwrap();
+        assert_eq!(body, "before\n~~~\nafter");
+
+        let out = serialize(&doc);
+        assert!(out.contains("~~~~\n"), "expected ≥4-tilde fence in output: {out}");
+
+        // Re-parse to confirm round-trip stability.
+        let doc2 = parse(&out).unwrap();
+        assert_eq!(doc2.blocks[0].content.as_fenced().unwrap(), body);
+    }
+
+    #[test]
+    fn pick_fence_len_picks_minimum_safe_length() {
+        assert_eq!(pick_fence_len(""), 3);
+        assert_eq!(pick_fence_len("plain content\n"), 3);
+        assert_eq!(pick_fence_len("a\n~~\nb"), 3);          // ~~ is < 3, ignored
+        assert_eq!(pick_fence_len("a\n~~~\nb"), 4);         // beat ~~~
+        assert_eq!(pick_fence_len("a\n~~~~\nb\n~~~\n"), 5); // beat the longest
     }
 }
