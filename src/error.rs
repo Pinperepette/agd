@@ -36,6 +36,9 @@ pub enum AgdError {
     #[error("block id `{id}` not found")]
     IdNotFound { id: String },
 
+    #[error("invalid edit: {message}")]
+    InvalidEdit { message: String },
+
     #[error("io: {0}")]
     Io(String),
 

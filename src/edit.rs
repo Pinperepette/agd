@@ -7,8 +7,77 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ast::{AttrValue, Block, Document};
+use crate::ast::{AttrValue, Block, BlockContent, BlockKind, Document, Inline};
 use crate::error::{AgdError, Result};
+use crate::parser::is_valid_ident;
+
+// The parser enforces the grammar on READ, but blocks arriving through this
+// API skip the parser: without the checks below, an invalid id/tag/attr is
+// serialized as-is with exit 0 and every subsequent parse of the file fails.
+// Newlines are rejected wherever the line-oriented syntax cannot represent
+// them (attr values, inline runs, list items); fenced bodies are exempt —
+// the serializer sizes the fence around them.
+fn invalid(message: String) -> AgdError {
+    AgdError::InvalidEdit { message }
+}
+
+fn validate_attr(key: &str, value: &AttrValue) -> Result<()> {
+    if !is_valid_ident(key) {
+        return Err(invalid(format!(
+            "attribute key `{key}`: must match [a-zA-Z_][a-zA-Z0-9_-]*"
+        )));
+    }
+    if let AttrValue::Str(s) = value {
+        if s.contains('\n') {
+            return Err(invalid(format!(
+                "attribute `{key}` value contains a newline, which the \
+                 line-oriented attribute syntax cannot represent"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_inlines(what: &str, inlines: &[Inline]) -> Result<()> {
+    let text = |i: &Inline| match i {
+        Inline::Text(s) | Inline::Bold(s) | Inline::Italic(s)
+        | Inline::Code(s) | Inline::Ref(s) => s.contains('\n'),
+    };
+    if inlines.iter().any(text) {
+        return Err(invalid(format!("{what} contains a newline")));
+    }
+    Ok(())
+}
+
+fn validate_new_block(block: &Block) -> Result<()> {
+    let tag = block.kind.as_str();
+    let custom_ok = tag.strip_prefix("x-").is_some_and(is_valid_ident);
+    if !BlockKind::BUILTINS.contains(&tag) && !custom_ok {
+        return Err(invalid(format!(
+            "block tag `{tag}`: must be a builtin or `x-` plus an identifier"
+        )));
+    }
+    if let Some(id) = block.id.as_deref() {
+        if !is_valid_ident(id) {
+            return Err(invalid(format!(
+                "id `{id}`: must match [a-zA-Z_][a-zA-Z0-9_-]*"
+            )));
+        }
+    }
+    for (key, value) in &block.attrs {
+        validate_attr(key, value)?;
+    }
+    match &block.content {
+        BlockContent::Inline(inlines) => validate_inlines("inline content", inlines)?,
+        BlockContent::Items(items) => {
+            for item in items {
+                validate_inlines("list item", item)?;
+            }
+        }
+        BlockContent::Fenced(_) | BlockContent::Empty => {}
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -25,6 +94,7 @@ impl Document {
     pub fn apply(&mut self, op: Operation) -> Result<()> {
         match op {
             Operation::Replace { id, mut with } => {
+                validate_new_block(&with)?;
                 let pos = self.position(&id).ok_or(AgdError::IdNotFound { id: id.clone() })?;
                 if with.id.is_none() {
                     with.id = Some(id.clone());
@@ -37,6 +107,7 @@ impl Document {
                 Ok(())
             }
             Operation::InsertAfter { id, block } => {
+                validate_new_block(&block)?;
                 let pos = self.position(&id).ok_or(AgdError::IdNotFound { id })?;
                 self.assert_unique_id(block.id.as_deref(), None)?;
                 self.blocks.insert(pos + 1, block);
@@ -44,6 +115,7 @@ impl Document {
                 Ok(())
             }
             Operation::InsertBefore { id, block } => {
+                validate_new_block(&block)?;
                 let pos = self.position(&id).ok_or(AgdError::IdNotFound { id })?;
                 self.assert_unique_id(block.id.as_deref(), None)?;
                 self.blocks.insert(pos, block);
@@ -57,6 +129,7 @@ impl Document {
                 Ok(())
             }
             Operation::SetAttr { id, key, value } => {
+                validate_attr(&key, &value)?;
                 // SetAttr / RemoveAttr don't change ids → cache stays valid.
                 let block = self.find_mut(&id).ok_or(AgdError::IdNotFound { id })?;
                 block.attrs.insert(key, value);
@@ -150,6 +223,75 @@ mod tests {
         let mut doc = fixture();
         let r = doc.apply(Operation::Delete { id: "nope".into() });
         assert!(matches!(r, Err(AgdError::IdNotFound { .. })));
+    }
+
+    // Every case below used to be WRITTEN with exit 0 and then rejected by
+    // the parser at the next read — one bad edit made the file unreadable.
+    #[test]
+    fn invalid_id_rejected_on_write() {
+        let mut doc = fixture();
+        let bad = Block::new("p", BlockContent::Inline(vec![Inline::Text("x".into())]))
+            .with_id("bad.id-1.9.0");
+        let r = doc.apply(Operation::InsertAfter { id: "p1".into(), block: bad });
+        assert!(matches!(r, Err(AgdError::InvalidEdit { .. })));
+        // the document must be untouched and still round-trip
+        assert_eq!(doc.blocks.len(), 3);
+        parse(&serialize(&doc)).unwrap();
+    }
+
+    #[test]
+    fn invalid_tag_rejected_on_write() {
+        let mut doc = fixture();
+        for tag in ["x bad", "x-bad stuff", "notbuiltin"] {
+            let bad = Block::new(tag, BlockContent::Empty).with_id("t");
+            let r = doc.apply(Operation::InsertAfter { id: "p1".into(), block: bad });
+            assert!(matches!(r, Err(AgdError::InvalidEdit { .. })), "tag `{tag}` accepted");
+        }
+    }
+
+    #[test]
+    fn newline_in_attr_value_rejected() {
+        let mut doc = fixture();
+        let r = doc.apply(Operation::SetAttr {
+            id: "p1".into(),
+            key: "desc".into(),
+            value: AttrValue::Str("line1\nline2".into()),
+        });
+        assert!(matches!(r, Err(AgdError::InvalidEdit { .. })));
+        // and through a new block's attrs too
+        let mut bad = Block::new("x-note", BlockContent::Empty).with_id("n");
+        bad.attrs.insert("desc".into(), AttrValue::Str("a\nb".into()));
+        let r = doc.apply(Operation::InsertAfter { id: "p1".into(), block: bad });
+        assert!(matches!(r, Err(AgdError::InvalidEdit { .. })));
+    }
+
+    #[test]
+    fn invalid_attr_key_rejected() {
+        let mut doc = fixture();
+        let r = doc.apply(Operation::SetAttr {
+            id: "p1".into(),
+            key: "bad key".into(),
+            value: AttrValue::Str("v".into()),
+        });
+        assert!(matches!(r, Err(AgdError::InvalidEdit { .. })));
+    }
+
+    #[test]
+    fn newline_in_inline_content_rejected() {
+        let mut doc = fixture();
+        let bad = Block::new("p", BlockContent::Inline(vec![Inline::Text("a\nb".into())]))
+            .with_id("nl");
+        let r = doc.apply(Operation::InsertAfter { id: "p1".into(), block: bad });
+        assert!(matches!(r, Err(AgdError::InvalidEdit { .. })));
+    }
+
+    #[test]
+    fn fenced_body_with_newlines_still_fine() {
+        let mut doc = fixture();
+        let ok = Block::new("x-note", BlockContent::Fenced("a\nb\n~~~ inside\n".into()))
+            .with_id("f");
+        doc.apply(Operation::InsertAfter { id: "p1".into(), block: ok }).unwrap();
+        parse(&serialize(&doc)).unwrap();
     }
 
     #[test]
