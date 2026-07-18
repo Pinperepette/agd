@@ -39,12 +39,39 @@ fn validate_attr(key: &str, value: &AttrValue) -> Result<()> {
 }
 
 fn validate_inlines(what: &str, inlines: &[Inline]) -> Result<()> {
-    let text = |i: &Inline| match i {
-        Inline::Text(s) | Inline::Bold(s) | Inline::Italic(s)
-        | Inline::Code(s) | Inline::Ref(s) => s.contains('\n'),
-    };
-    if inlines.iter().any(text) {
-        return Err(invalid(format!("{what} contains a newline")));
+    for node in inlines {
+        // Newlines never survive the line-oriented syntax, in any run.
+        let s = match node {
+            Inline::Text(s) | Inline::Bold(s) | Inline::Italic(s)
+            | Inline::Code(s) | Inline::Ref(s) => s,
+        };
+        if s.contains('\n') {
+            return Err(invalid(format!("{what} contains a newline")));
+        }
+        // A styled run is wrapped in its own delimiter; the same delimiter
+        // inside the content closes the run early and the tail re-parses as
+        // separate nodes — the edit would round-trip to a different document.
+        // v0.1 has no escapes (grammar/agd.ebnf), so this is unrepresentable.
+        let clash = match node {
+            Inline::Bold(s) => s.contains('*'),
+            Inline::Italic(s) => s.contains('_'),
+            Inline::Code(s) => s.contains('`'),
+            _ => false,
+        };
+        if clash {
+            return Err(invalid(format!(
+                "{what}: a styled run cannot contain its own delimiter \
+                 (`*`, `_` or backtick) — v0.1 has no escapes"
+            )));
+        }
+        // `@ref #id` is block-level only; an inline Ref serializes to text the
+        // parser reads back as plain text, silently dropping the reference.
+        if let Inline::Ref(_) = node {
+            return Err(invalid(format!(
+                "{what}: inline references are not part of the v0.1 inline \
+                 grammar — use a block-level `@ref #id`"
+            )));
+        }
     }
     Ok(())
 }
@@ -292,6 +319,46 @@ mod tests {
             .with_id("f");
         doc.apply(Operation::InsertAfter { id: "p1".into(), block: ok }).unwrap();
         parse(&serialize(&doc)).unwrap();
+    }
+
+    // A styled run whose content holds its OWN delimiter closes early and the
+    // tail re-parses as separate nodes — used to be written with exit 0 and
+    // silently changed the document. (Same class as the newline/id bugs above.)
+    #[test]
+    fn styled_run_with_own_delimiter_rejected() {
+        let cases = [
+            Inline::Bold("a*b".into()),
+            Inline::Italic("a_b".into()),
+            Inline::Code("a`b".into()),
+        ];
+        for node in cases {
+            let mut doc = fixture();
+            let bad = Block::new("p", BlockContent::Inline(vec![node.clone()])).with_id("x");
+            let r = doc.apply(Operation::InsertAfter { id: "p1".into(), block: bad });
+            assert!(matches!(r, Err(AgdError::InvalidEdit { .. })), "{node:?} accepted");
+        }
+    }
+
+    // A DIFFERENT delimiter inside a run is fine — the run scanner ignores it —
+    // so this must still be accepted and must round-trip faithfully.
+    #[test]
+    fn styled_run_with_foreign_delimiter_round_trips() {
+        let mut doc = fixture();
+        let ok = Block::new("p", BlockContent::Inline(vec![Inline::Bold("a_b`c".into())]))
+            .with_id("ok");
+        doc.apply(Operation::InsertAfter { id: "p1".into(), block: ok }).unwrap();
+        assert_eq!(parse(&serialize(&doc)).unwrap(), doc);
+    }
+
+    // `@ref #id` is block-level only; an inline Ref serializes to text the
+    // parser reads back as plain text — a silent reference drop.
+    #[test]
+    fn inline_ref_rejected() {
+        let mut doc = fixture();
+        let bad = Block::new("p", BlockContent::Inline(vec![Inline::Ref("a".into())]))
+            .with_id("r");
+        let r = doc.apply(Operation::InsertAfter { id: "p1".into(), block: bad });
+        assert!(matches!(r, Err(AgdError::InvalidEdit { .. })));
     }
 
     #[test]

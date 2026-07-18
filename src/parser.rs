@@ -430,6 +430,16 @@ fn parse_attrs(rest: &str, line: &Line) -> Result<BTreeMap<String, AttrValue>> {
             let v = &s[v_start..i];
             classify_attr_value(v)
         };
+        // A duplicate key would otherwise overwrite the earlier value silently
+        // (BTreeMap::insert) — the same class of quiet data loss that duplicate
+        // IDs raise a hard error for. Refuse it so malformed input is caught,
+        // not masked. agd's own serializer never emits duplicates.
+        if out.contains_key(key) {
+            return Err(AgdError::InvalidAttr {
+                line: line.line_no,
+                message: format!("attribute `{key}` appears more than once on this block"),
+            });
+        }
         out.insert(key.to_string(), value);
     }
     Ok(out)
@@ -598,6 +608,28 @@ mod tests {
     fn duplicate_ids_rejected() {
         let src = "@h1 A [#x]\n@h2 B [#x]\n";
         assert!(matches!(parse(src), Err(AgdError::DuplicateId { .. })));
+    }
+
+    #[test]
+    fn duplicate_attr_key_rejected() {
+        // Used to keep the last value silently; now a hard error like dup IDs.
+        assert!(matches!(
+            parse("@x-note a=1 a=2\n"),
+            Err(AgdError::InvalidAttr { .. })
+        ));
+    }
+
+    #[test]
+    fn quoted_attr_escapes_round_trip() {
+        // `\"` and `\\` are the only escapes; the value must survive
+        // parse → serialize → parse unchanged (grammar §escape).
+        let doc = parse("@x-note desc=\"he said \\\"hi\\\" \\\\ ok\"\n").unwrap();
+        assert_eq!(
+            doc.blocks[0].attrs.get("desc"),
+            Some(&AttrValue::Str("he said \"hi\" \\ ok".into()))
+        );
+        let reparsed = parse(&crate::serializer::serialize(&doc)).unwrap();
+        assert_eq!(reparsed, doc);
     }
 
     #[test]

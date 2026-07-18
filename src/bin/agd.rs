@@ -548,8 +548,7 @@ fn cmd_format(file: &Path, in_place: bool, check: bool) -> Result<ExitCode> {
         return Ok(ExitCode::from(1));
     }
     if in_place {
-        ensure_real_path(file)?;
-        fs::write(file, &out)?;
+        write_in_place(file, &doc, &out)?;
     } else {
         io::stdout().write_all(out.as_bytes())?;
     }
@@ -616,8 +615,7 @@ fn cmd_id(file: &Path, add: bool, strip: bool, in_place: bool) -> Result<ExitCod
     }
     let out = serialize(&doc);
     if in_place {
-        ensure_real_path(file)?;
-        fs::write(file, &out)?;
+        write_in_place(file, &doc, &out)?;
     } else {
         io::stdout().write_all(out.as_bytes())?;
     }
@@ -632,8 +630,7 @@ fn cmd_edit(file: &Path, op_json: &str, in_place: bool) -> Result<ExitCode> {
     doc.apply(op)?;
     let out = serialize(&doc);
     if in_place {
-        ensure_real_path(file)?;
-        fs::write(file, &out)?;
+        write_in_place(file, &doc, &out)?;
     } else {
         io::stdout().write_all(out.as_bytes())?;
     }
@@ -701,6 +698,37 @@ fn ensure_real_path(file: &Path) -> Result<()> {
     if file.as_os_str() == "-" {
         bail!("--in-place not supported with stdin");
     }
+    Ok(())
+}
+
+// Last line of defence before overwriting a file in place. `apply()` and the
+// edit validators are the primary guards, but they cannot know about every
+// present-or-future gap in the serializer. Here we prove the round-trip: the
+// bytes we are about to write must re-parse, and re-parse back to the SAME
+// document. That catches both failure modes at once — output no later parse can
+// read (the exact bug that corrupted a real memory file) AND output that parses
+// to a *different* document (unrepresentable content silently rewritten, e.g. a
+// delimiter or reference the v0.1 syntax cannot encode). `Block` equality
+// ignores source spans, so canonical reformatting never trips it. Cheap: the
+// write already dominates the cost, and any failure leaves the file untouched.
+fn write_in_place(file: &Path, doc: &Document, out: &str) -> Result<()> {
+    ensure_real_path(file)?;
+    let reparsed = parse(out).with_context(|| {
+        format!(
+            "refusing to write {}: serialized output does not re-parse — this \
+             is a bug in agd; the file was left untouched",
+            file.display()
+        )
+    })?;
+    if &reparsed != doc {
+        bail!(
+            "refusing to write {}: this edit does not round-trip — the \
+             serialized output re-parses to a different document (content the \
+             v0.1 syntax cannot represent); the file was left untouched",
+            file.display()
+        );
+    }
+    fs::write(file, out)?;
     Ok(())
 }
 

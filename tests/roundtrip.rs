@@ -177,3 +177,51 @@ proptest! {
         prop_assert_eq!(once, twice);
     }
 }
+
+// --- apply()-path fidelity ------------------------------------------------
+// The strategies above deliberately dodge the inline delimiters and Refs. This
+// one does the opposite: it feeds the EDIT api content that can break the
+// round-trip (a delimiter inside a run, `*`/`_`/backtick in plain text, an
+// inline Ref) and asserts the contract — apply() either rejects the edit
+// (InvalidEdit) or produces output that still PARSES. The historical bug was an
+// edit written with exit 0 that no later parse could read; this pins that shut
+// across the whole hostile space, not one hand-picked case.
+fn hostile_run_text() -> impl Strategy<Value = String> {
+    "[a-zA-Z0-9 *_`+/=-]{1,12}"
+        .prop_map(|s| s.trim().to_string())
+        .prop_filter("non-empty", |s| !s.is_empty())
+}
+
+fn hostile_inline() -> impl Strategy<Value = Inline> {
+    prop_oneof![
+        hostile_run_text().prop_map(Inline::Text),
+        hostile_run_text().prop_map(Inline::Bold),
+        hostile_run_text().prop_map(Inline::Italic),
+        hostile_run_text().prop_map(Inline::Code),
+        ident_strategy().prop_map(Inline::Ref),
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+    #[test]
+    fn apply_never_writes_unparseable(inl in prop::collection::vec(hostile_inline(), 1..4)) {
+        let mut doc = agd::parse("@p seed [#p1]\n").unwrap();
+        let block = Block {
+            kind: BlockKind::new("p"),
+            attrs: BTreeMap::new(),
+            id: Some("p1".into()),
+            content: BlockContent::Inline(inl),
+            span: Default::default(),
+        };
+        let op = agd::edit::Operation::Replace { id: "p1".into(), with: block };
+        // Either the editor refuses the edit, or its output must re-parse.
+        if doc.apply(op).is_ok() {
+            let out = agd::serialize(&doc);
+            agd::parse(&out).map_err(|e| {
+                TestCaseError::fail(format!("accepted edit produced unparseable output: {e}\n{out}"))
+            })?;
+        }
+    }
+}

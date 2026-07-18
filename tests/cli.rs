@@ -93,6 +93,38 @@ fn edit_replace_op() {
 }
 
 #[test]
+fn edit_in_place_refuses_non_roundtripping_edit() {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let original = "@p first [#a]\n";
+    std::fs::write(tmp.path(), original).unwrap();
+    // A plain Text run holding a matched delimiter pair: apply() accepts it (it
+    // is not a *styled* run), but it serializes to `a*b*c`, which re-parses as
+    // Text+Bold+Text — a different document. The in-place write guard must
+    // refuse (non-zero exit) and leave the file byte-for-byte untouched.
+    let op = serde_json::json!({
+        "op": "replace",
+        "id": "a",
+        "with": {
+            "kind": "p",
+            "id": "a",
+            "content": { "type": "inline", "value": [{ "kind": "text", "text": "a*b*c" }] }
+        }
+    });
+    let out = agd()
+        .args(["edit", "--op", &op.to_string(), "--in-place"])
+        .arg(tmp.path())
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "expected non-zero exit, got success; stdout={:?}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let after = std::fs::read_to_string(tmp.path()).unwrap();
+    assert_eq!(after, original, "file must be left untouched when the edit is refused");
+}
+
+#[test]
 fn bench_outputs_token_counts() {
     let path = examples_dir().join("01_basic_blocks.agd");
     agd()

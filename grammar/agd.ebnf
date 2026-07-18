@@ -58,7 +58,8 @@ inline-body  = (* parsed as @p paragraph until blank line *) ;
 attrs       = { SP attr } ;
 attr        = ident "=" attr-value ;
 attr-value  = quoted | unquoted-int | unquoted-bool | unquoted-ident ;
-quoted      = '"' { any-char-no-quote } '"' ;
+quoted      = '"' { any-char-no-quote | escape } '"' ;
+escape      = "\" ( '"' | "\" ) ;   (* the backslash is dropped, next char taken verbatim *)
 unquoted-int  = ["-"] digit { digit } ;
 unquoted-bool = "true" | "false" ;
 unquoted-ident = ident ;
@@ -104,8 +105,14 @@ any-char-no-delim   = ? any UTF-8 except current run delimiter or U+000A ? ;
 (*    after parsing; duplicates raise AgdError::DuplicateId.             *)
 (*  - Unknown @tag (not built-in, not x-prefixed) raises                 *)
 (*    AgdError::InvalidTag at the line of occurrence.                    *)
+(*  - A repeated attribute key on one block raises AgdError::InvalidAttr  *)
+(*    (no silent last-wins); keys are otherwise unordered.               *)
 (*  - Inline emphasis is non-nestable. The first matching closing        *)
 (*    delimiter terminates the run; mismatched delimiters degrade to     *)
 (*    plain text.                                                        *)
-(*  - Backslash escapes are NOT supported in v0.1.                       *)
+(*  - Inside a quoted attr value, `\"` and `\\` are the only escapes:     *)
+(*    the backslash is dropped and the next byte taken verbatim (so a     *)
+(*    value may contain a literal " or \). No other escapes exist —       *)
+(*    `\n` is a backslash followed by n. Escapes appear ONLY in quoted    *)
+(*    attribute values; nowhere else in v0.1.                             *)
 (*                                                                       *)
